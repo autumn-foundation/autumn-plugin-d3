@@ -343,7 +343,7 @@ impl<K: Kind> Chart<K> {
         let y_head = self.attribute(attr::Y_LABEL).unwrap_or("Value");
         let time = self.attribute(attr::X_SCALE) == Some(Scale::Time.as_str());
         html! {
-            table class="d3-table" {
+            div class="d3-table" { table {
                 @if let Some(caption) = caption { caption { (caption) } }
                 @match &self.payload {
                     Payload::Categories(data) => {
@@ -370,7 +370,7 @@ impl<K: Kind> Chart<K> {
                     }
                     Payload::Empty | Payload::Json(_) => {}
                 }
-            }
+            } }
         }
     }
 }
@@ -797,7 +797,7 @@ mod tests {
     #[test]
     fn table_can_be_left_out() {
         let html = render(&Chart::bar([("a", 1.0)]).table(false));
-        assert!(!html.contains("<table"), "{html}");
+        assert!(!html.contains("d3-table"), "{html}");
     }
 
     #[test]

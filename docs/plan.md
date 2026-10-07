@@ -125,7 +125,7 @@ request and the prior art.
 | AC8 | Extension: `d3:ready` event, `el.autumnD3` handle, `AutumnD3.register` for custom kinds, shared `window.d3`. |
 | AC9 | Theme: CSS custom properties, validated light and dark palette, typed color override. |
 | AC10 | A runnable demo app and an E2E fixture app. |
-| AC11 | Tests: Rust unit, proptest, and doc tests with ≥ 85 % line coverage. `parse.js` unit tests with ≥ 85 % coverage. Browser E2E tests with ≥ 90 % `init.js` line coverage. |
+| AC11 | Tests: Rust unit, proptest, and doc tests with ≥ 85 % line coverage. `parse.js` unit tests with ≥ 85 % coverage. Browser E2E tests with ≥ 95 % `init.js` line coverage. |
 | AC12 | CI: fmt, clippy (pedantic + nursery), tests, docs, coverage, MSRV 1.88, JS unit, E2E. |
 | AC13 | Docs: README, CLAUDE.md, ADRs, this plan. ASD-STE100, short. |
 | AC14 | A multi-angle code review ran. All findings are fixed or answered. |

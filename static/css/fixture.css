@@ -1,0 +1,5 @@
+/* E2E fixture page styles. */
+body { margin: 0; padding: 16px; font: 14px/1.4 system-ui, sans-serif; }
+.d3-chart { width: 600px; margin: 0 0 24px; }
+.fat { --d3-bar-max: 40; }
+.bad-max { --d3-bar-max: nope; }
