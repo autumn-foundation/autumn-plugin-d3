@@ -14,6 +14,30 @@
 //! // `donut` is a pie option. A bar chart does not have it.
 //! let _ = Chart::bar([("a", 1.0)]).donut(0.5);
 //! ```
+//!
+//! ```compile_fail
+//! # use autumn_plugin_d3::Chart;
+//! // A bar chart has one series: no legend.
+//! let _ = Chart::bar([("a", 1.0)]).legend(true);
+//! ```
+//!
+//! ```compile_fail
+//! # use autumn_plugin_d3::{Chart, Curve};
+//! // Scatter dots have no curve.
+//! let _ = Chart::scatter([]).curve(Curve::Step);
+//! ```
+//!
+//! ```compile_fail
+//! # use autumn_plugin_d3::Chart;
+//! // Only bar charts are horizontal.
+//! let _ = Chart::line([]).horizontal();
+//! ```
+//!
+//! ```compile_fail
+//! # use autumn_plugin_d3::Chart;
+//! // Pie charts have no value axis.
+//! let _ = Chart::pie([("a", 1.0)]).y_max(1.0);
+//! ```
 
 use std::borrow::Cow;
 use std::marker::PhantomData;
@@ -106,8 +130,10 @@ pub trait Kind: sealed::Sealed {}
 pub trait Axes: Kind {}
 /// Kinds with a continuous x axis: line, area, scatter, custom.
 pub trait Xy: Axes {}
-/// Kinds with a curve: line, area, custom.
+/// Kinds with a curve and point dots: line, area, custom.
 pub trait Curved: Xy {}
+/// Kinds with a legend: line, area, scatter, pie.
+pub trait Legend: Kind {}
 /// Built-in kinds. They have a fixed name.
 pub trait BuiltIn: Kind {
     /// The `data-d3` value.
@@ -132,13 +158,13 @@ kind! {
     /// Bar chart kind.
     Bar = "bar": Axes;
     /// Line chart kind.
-    Line = "line": Axes, Xy, Curved;
+    Line = "line": Axes, Xy, Curved, Legend;
     /// Area chart kind.
-    Area = "area": Axes, Xy, Curved;
+    Area = "area": Axes, Xy, Curved, Legend;
     /// Scatter chart kind.
-    Scatter = "scatter": Axes, Xy;
+    Scatter = "scatter": Axes, Xy, Legend;
     /// Pie and donut chart kind.
-    Pie = "pie":;
+    Pie = "pie": Legend;
 }
 
 /// Custom chart kind. Register the draw function in JavaScript with
@@ -172,7 +198,7 @@ enum Payload {
 /// let chart = Chart::bar([("Apples", 3.0), ("Pears", 5.0)])
 ///     .label("Fruit sold")
 ///     .y_label("Units")
-///     .format(&Format::integer());
+///     .format(Format::integer());
 /// let html = autumn_web::html! { (chart) }.into_string();
 /// assert!(html.contains(r#"data-d3="bar""#), "{html}");
 /// assert!(html.contains("<table"), "fallback table: {html}");
@@ -227,7 +253,9 @@ impl<K: Kind> Chart<K> {
         self
     }
 
-    /// The value of an emitted attribute (for tests and custom code).
+    /// The value of an emitted `data-d3-*` option attribute, for example
+    /// `"data-d3-label"`. For `data-d3` use [`kind`](Self::kind); for
+    /// `data-d3-data` use [`data_json`](Self::data_json).
     #[must_use]
     pub fn attribute(&self, name: &str) -> Option<&str> {
         self.attrs
@@ -255,6 +283,7 @@ impl<K: Kind> Chart<K> {
     }
 
     /// Sets the accessible name of the chart. It is also the table caption.
+    /// Without it, the runtime uses the [`caption`](Self::caption) text.
     pub fn label(self, label: impl Into<String>) -> Self {
         self.set(attr::LABEL, label)
     }
@@ -265,9 +294,19 @@ impl<K: Kind> Chart<K> {
         self
     }
 
-    /// Sets the value format (axis ticks, tooltips, labels).
-    pub fn format(self, format: &Format) -> Self {
-        self.set(attr::FORMAT, format.spec())
+    /// Sets the value format (axis ticks and tooltips).
+    pub fn format(self, format: Format) -> Self {
+        self.set(attr::FORMAT, format.into_spec())
+    }
+
+    /// Sets the x title (bottom axis) and the first table header.
+    pub fn x_label(self, label: impl Into<String>) -> Self {
+        self.set(attr::X_LABEL, label)
+    }
+
+    /// Sets the value title (value axis) and the value table header.
+    pub fn y_label(self, label: impl Into<String>) -> Self {
+        self.set(attr::Y_LABEL, label)
     }
 
     /// Sets the series colors, in order. They replace the palette. At most
@@ -301,12 +340,6 @@ impl<K: Kind> Chart<K> {
         self.set(attr::REDUCED, "animate")
     }
 
-    /// Shows or hides the legend. The default shows it for two or more
-    /// series, and for pie charts.
-    pub fn legend(self, show: bool) -> Self {
-        self.set(attr::LEGEND, if show { "true" } else { "false" })
-    }
-
     /// Loads the data from a same-origin JSON URL. The JSON has the same
     /// shape as the inline data. Inline data, if any, shows first.
     pub fn src(self, url: impl Into<String>) -> Self {
@@ -326,8 +359,9 @@ impl<K: Kind> Chart<K> {
         self
     }
 
-    /// The JSON for `data-d3-data`, if any.
-    fn data_json(&self) -> Option<String> {
+    /// The JSON for `data-d3-data`, if the chart has inline data.
+    #[must_use]
+    pub fn data_json(&self) -> Option<String> {
         match &self.payload {
             Payload::Empty => None,
             Payload::Categories(data) => serde_json::to_string(data).ok(),
@@ -336,9 +370,15 @@ impl<K: Kind> Chart<K> {
         }
     }
 
-    /// The fallback table.
+    /// The fallback table. Without inline data, an empty wrapper: the
+    /// runtime fills it for built-in kinds after it loads the data.
     fn table_markup(&self) -> Markup {
-        let caption = self.attribute(attr::LABEL);
+        match &self.payload {
+            Payload::Empty => return html! { div class="d3-table" {} },
+            Payload::Json(_) => return html! {},
+            Payload::Categories(_) | Payload::Series(_) => {}
+        }
+        let caption = self.attribute(attr::LABEL).or(self.caption.as_deref());
         let x_head = self.attribute(attr::X_LABEL);
         let y_head = self.attribute(attr::Y_LABEL).unwrap_or("Value");
         let time = self.attribute(attr::X_SCALE) == Some(Scale::Time.as_str());
@@ -390,16 +430,6 @@ impl<K: BuiltIn> Chart<K> {
 }
 
 impl<K: Axes> Chart<K> {
-    /// Sets the x axis title.
-    pub fn x_label(self, label: impl Into<String>) -> Self {
-        self.set(attr::X_LABEL, label)
-    }
-
-    /// Sets the y axis (value axis) title.
-    pub fn y_label(self, label: impl Into<String>) -> Self {
-        self.set(attr::Y_LABEL, label)
-    }
-
     /// Sets the lower end of the value axis. The data can extend it.
     pub fn y_min(self, min: f64) -> Self {
         self.set_number(attr::Y_MIN, min)
@@ -429,8 +459,8 @@ impl<K: Xy> Chart<K> {
     }
 
     /// Sets the x tick format. Time scales ignore it.
-    pub fn x_format(self, format: &Format) -> Self {
-        self.set(attr::X_FORMAT, format.spec())
+    pub fn x_format(self, format: Format) -> Self {
+        self.set(attr::X_FORMAT, format.into_spec())
     }
 }
 
@@ -439,10 +469,23 @@ impl<K: Curved> Chart<K> {
     pub fn curve(self, curve: Curve) -> Self {
         self.set(attr::CURVE, curve.as_str())
     }
+
+    /// Draws a dot on each point.
+    pub fn dots(self) -> Self {
+        self.set(attr::DOTS, "true")
+    }
+}
+
+impl<K: Legend> Chart<K> {
+    /// Shows or hides the legend. The default shows it for two or more
+    /// series or slices.
+    pub fn legend(self, show: bool) -> Self {
+        self.set(attr::LEGEND, if show { "true" } else { "false" })
+    }
 }
 
 impl Chart<Bar> {
-    /// Makes a bar chart.
+    /// Makes a bar chart. Repeated labels draw as separate bars.
     pub fn bar<D: Into<Datum>>(data: impl IntoIterator<Item = D>) -> Self {
         let data = data.into_iter().map(Into::into).collect();
         Self::with(Cow::Borrowed(Bar::NAME), Payload::Categories(data))
@@ -455,7 +498,7 @@ impl Chart<Bar> {
 }
 
 impl Chart<Pie> {
-    /// Makes a pie chart.
+    /// Makes a pie chart. Repeated labels draw as separate slices.
     pub fn pie<D: Into<Datum>>(data: impl IntoIterator<Item = D>) -> Self {
         let data = data.into_iter().map(Into::into).collect();
         Self::with(Cow::Borrowed(Pie::NAME), Payload::Categories(data))
@@ -475,11 +518,6 @@ impl Chart<Line> {
             Cow::Borrowed(Line::NAME),
             Payload::Series(series.into_iter().collect()),
         )
-    }
-
-    /// Draws a dot on each point.
-    pub fn dots(self) -> Self {
-        self.set(attr::DOTS, "true")
     }
 }
 
@@ -523,7 +561,7 @@ impl Chart<Custom> {
     /// use autumn_plugin_d3::Chart;
     ///
     /// let chart = Chart::custom("network").unwrap().json(&[1, 2, 3]).unwrap();
-    /// assert_eq!(chart.attribute("data-d3-data"), None);
+    /// assert_eq!(chart.data_json().as_deref(), Some("[1,2,3]"));
     /// assert!(Chart::custom("Bad Name").is_err());
     /// ```
     pub fn custom(name: impl Into<String>) -> Result<Self, Error> {
@@ -631,12 +669,11 @@ mod tests {
         let chart = Chart::bar([("a", 1.0)])
             .x_label("Fruit")
             .y_label("Kg")
-            .format(&Format::decimal(1))
+            .format(Format::decimal(1))
             .colors([Color::hex(0x00ff_0000), Color::hex(0x0000_ff00)])
             .aspect(2.0)
             .duration(Duration::from_millis(250))
             .animate_reduced_motion()
-            .legend(false)
             .y_min(0.0)
             .y_max(10.0)
             .horizontal()
@@ -650,7 +687,6 @@ mod tests {
             ("data-d3-aspect", "2"),
             ("data-d3-duration", "250"),
             ("data-d3-reduced", "animate"),
-            ("data-d3-legend", "false"),
             ("data-d3-y-min", "0"),
             ("data-d3-y-max", "10"),
             ("data-d3-horizontal", "true"),
@@ -727,7 +763,7 @@ mod tests {
             .curve(Curve::Monotone)
             .x_scale(Scale::Log)
             .y_scale(Scale::Log)
-            .x_format(&Format::si(2))
+            .x_format(Format::si(2))
             .dots();
         assert_eq!(chart.kind(), "line");
         assert_eq!(
@@ -801,6 +837,53 @@ mod tests {
     }
 
     #[test]
+    fn caption_is_the_table_caption_without_a_label() {
+        let html = render(&Chart::bar([("a", 1.0)]).caption("Share"));
+        assert!(html.contains("<caption>Share</caption>"), "{html}");
+    }
+
+    #[test]
+    fn pie_tables_take_column_titles() {
+        let html = render(
+            &Chart::pie([("a", 1.0)])
+                .x_label("Fruit")
+                .y_label("Share")
+                .legend(true),
+        );
+        assert!(
+            html.contains(r#"<th scope="col">Fruit</th><th scope="col">Share</th>"#),
+            "{html}"
+        );
+        assert_eq!(
+            Chart::area([]).dots().attribute("data-d3-dots"),
+            Some("true")
+        );
+    }
+
+    #[test]
+    fn limits_match_parse_js() {
+        let parse = include_str!("../assets/parse.js");
+        let code: String = parse
+            .lines()
+            .filter(|l| !l.trim_start().starts_with("//") && !l.trim_start().starts_with('*'))
+            .collect();
+        for js in [
+            format!("aspect), {}, {})", ASPECT_RANGE.0, ASPECT_RANGE.1),
+            format!("duration), 0, {MAX_DURATION_MS})"),
+            format!("refresh), {MIN_REFRESH_MS}, {MAX_REFRESH_MS})"),
+            format!("inner), 0, {MAX_INNER})"),
+            format!("radius), {}, {})", RADIUS_RANGE.0, RADIUS_RANGE.1),
+            format!("MAX_COLORS = {MAX_COLORS};"),
+        ] {
+            // `10_000` in JS is `10000` in Rust.
+            assert!(
+                code.replace('_', "").contains(&js.replace('_', "")),
+                "parse.js code lacks {js}"
+            );
+        }
+    }
+
+    #[test]
     fn from_src_has_no_inline_data() {
         let chart = Chart::<Line>::from_src("/api/x").refresh(Duration::from_secs(5));
         let html = render(&chart);
@@ -808,7 +891,11 @@ mod tests {
         assert!(html.contains(r#"data-d3-src="/api/x""#), "{html}");
         assert!(html.contains(r#"data-d3-refresh="5000""#), "{html}");
         assert!(!html.contains("data-d3-data"), "{html}");
-        assert!(!html.contains("<tbody"), "empty table: {html}");
+        assert!(
+            html.contains(r#"<div class="d3-table"></div>"#),
+            "empty wrapper for the runtime: {html}"
+        );
+        assert!(!html.contains("<table"), "no empty table: {html}");
     }
 
     #[test]
@@ -841,8 +928,8 @@ mod tests {
         );
         assert!(html.contains(r#"data-d3-curve="step""#), "{html}");
         assert!(
-            !html.contains("<tbody"),
-            "custom data has no table rows: {html}"
+            !html.contains("d3-table"),
+            "custom data has no table: {html}"
         );
     }
 

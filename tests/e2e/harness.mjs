@@ -151,10 +151,11 @@ export async function start({ env = {}, toml = null, example = "e2e_fixture", re
 
   /**
    * Opens `path` in a fresh context. Options: Playwright context options,
-   * plus `init` (a function to run before page scripts). The default
+   * plus `init` (a function to run before page scripts) and `onRequest`
+   * (called with each request URL, from before navigation). The default
    * context asks for reduced motion, so charts draw without transitions.
    */
-  async function open(path, { init, ...options } = {}) {
+  async function open(path, { init, onRequest, ...options } = {}) {
     const context = await browser.newContext({ viewport: { width: 800, height: 600 }, reducedMotion: "reduce", ...options });
     contexts.push(context);
     const page = await context.newPage();
@@ -165,6 +166,7 @@ export async function start({ env = {}, toml = null, example = "e2e_fixture", re
     const errors = [];
     page.on("pageerror", (e) => errors.push(e.message));
     page.on("console", (m) => m.type() === "error" && errors.push(m.text()));
+    if (onRequest) page.on("request", (request) => onRequest(request.url()));
     await page.addInitScript(RECORDER);
     if (init) await page.addInitScript(init);
     await page.goto(`${base}${path}`);

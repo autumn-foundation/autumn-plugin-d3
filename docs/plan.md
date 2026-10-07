@@ -12,7 +12,7 @@ correct across htmx swaps. Keep the data readable without JavaScript.
 
 ## 2. Brainstorming
 
-All ideas first, no filter:
+We wrote all ideas first. We did not filter them.
 
 1. Vendor the D3 UMD build (`d3.min.js`, sets `window.d3`) and serve it
    with `PluginAssets`.
@@ -65,7 +65,7 @@ Question: "How can we make this plugin fail?" Then invert each answer.
 | Reduced-motion users see motion. | No transitions unless `data-d3-reduced="animate"`. |
 | Color is the only identity channel. | Legend for two or more series. Table view. Tooltip with the series name. |
 | Colors fail for color-blind users. | Validated 8-slot palette from the dataviz method. Light and dark steps. |
-| Custom kind loads after the scan. | `register()` rescans. The chart waits in state `pending`. |
+| Custom kind loads after the scan. | The chart waits in state `pending`. `register()` starts the waiting charts of that kind. |
 | Tests only check strings; the chart does not draw. | E2E tests in headless Chromium read the SVG geometry. |
 | Two copies of D3 load. | One global `window.d3`. Docs say: use it, do not load another. |
 
@@ -75,12 +75,12 @@ Question: "How can we make this plugin fail?" Then invert each answer.
   is one 280 KB UMD file. It sets `window.d3`. Autumn 0.8 serves
   `PluginAssets` with hashed URLs, SRI, ETag, and Range. Default CSP:
   `script-src 'self'`, `connect-src 'self'`. Nonce mode drops
-  `'unsafe-inline'` from `style-src`. CSSOM writes are not blocked. Verus
-  is not available in this container, and the crate has no `unsafe` code
-  and no state machine. Proptests cover the builder invariants. E2E tests
-  cover the JS lifecycle.
+  `'unsafe-inline'` from `style-src`. The CSP does not block CSSOM writes.
+  Proptests cover the builder invariants. E2E tests cover the JS
+  lifecycle state machine (ADR 0002). We did not use Verus: the crate has
+  no `unsafe` code and no Rust state machine.
 - **Red (feelings).** Users want "a chart on my page in five lines". The
-  default look must be calm and good without CSS work.
+  default look must be clear and quiet without CSS work.
 - **Black (risks).** UMD globals and load order: `defer` keeps document
   order. A custom chart script must come after `d3_script()`. A large
   dataset in an attribute makes the HTML big: use `data-d3-src`.

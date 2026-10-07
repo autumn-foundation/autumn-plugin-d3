@@ -24,6 +24,14 @@ start, update, and stop with the DOM. Rust must not emit JavaScript.
   observers, timers, and requests. A `Map` keeps one state per element.
 - Custom kinds: `AutumnD3.register(name, draw)`. Charts of an unknown
   custom kind wait in state `pending`.
+- Data keys: repeated labels get unique keys (`a`, `a` + counter), so
+  each draws as its own mark.
+- `data-d3-src`: same origin only, also after a redirect. A refresh waits
+  twice as long after each failure (up to 5 min) and stops while the tab
+  is hidden.
+- One runtime per page. A `Symbol.for("autumn-plugin-d3")` mark on
+  `window` stops a second copy of `init.js`. (An element id cannot fake a
+  Symbol key.)
 
 ```mermaid
 stateDiagram-v2

@@ -11,8 +11,10 @@
   "use strict";
 
   // A second copy of this file (for example from an htmx swap of the head)
-  // must not start a second runtime.
-  if (window.AutumnD3) return;
+  // must not start a second runtime. A Symbol mark, not `window.AutumnD3`:
+  // an element with id "AutumnD3" also makes that name truthy.
+  const MARK = Symbol.for("autumn-plugin-d3");
+  if (window[MARK]) return;
 
   const d3 = window.d3;
   const P = window.AutumnD3Parse;
@@ -21,7 +23,15 @@
     return;
   }
 
+  Object.defineProperty(window, MARK, { value: true });
+
   const VERSION = "0.1.0";
+  /** Largest d3-format width. A huge width freezes the page. */
+  const MAX_FORMAT_WIDTH = 64;
+  /** Longest category label on a vertical axis before it is cut. */
+  const MAX_LABEL = 24;
+  /** Most refresh back-off after failures. */
+  const MAX_BACKOFF_MS = 300_000;
   const { ATTR } = P;
   const SELECTOR = `[${ATTR.kind}]`;
   const WATCHED = Object.values(ATTR).filter((name) => name !== ATTR.state);
@@ -56,6 +66,7 @@
   function makeFormat(spec) {
     if (!spec) return null;
     try {
+      if (d3.formatSpecifier(spec).width > MAX_FORMAT_WIDTH) throw new RangeError("width");
       return d3.format(spec);
     } catch {
       console.warn(`autumn-plugin-d3: bad format "${spec}", using the default`);
@@ -65,6 +76,19 @@
 
   /** Formats Unix milliseconds as a UTC date (and time when not midnight). */
   const formatTime = (ms) => (ms % DAY_MS === 0 ? formatDay : formatMinute)(new Date(ms));
+
+  /** Table form of Unix ms: the same text as the Rust fallback table. */
+  const formatIso = d3.utcFormat("%Y-%m-%dT%H:%M:%SZ");
+  const tableTime = (ms) => (ms % DAY_MS === 0 ? formatDay(new Date(ms)) : ms % 1000 === 0 ? formatIso(new Date(ms)) : d3.isoFormat(new Date(ms)));
+
+  /** Table form of a number: missing values are a dash. */
+  const tableNumber = (v) => (v === null ? "—" : String(Object.is(v, -0) ? 0 : v));
+
+  /** Cuts a long label. The table and tooltip keep the full text. */
+  const cut = (label) => (label.length > MAX_LABEL ? `${label.slice(0, MAX_LABEL - 1)}…` : label);
+
+  /** A unique id for hint elements. */
+  let nextId = 0;
 
   /** Transition time for a draw, after the reduced-motion rule. */
   function effectiveDuration(state) {
@@ -142,13 +166,15 @@
     const valueAxis = (axis, n) => (valueFormat ? axis.ticks(n).tickFormat(valueFormat) : axis.ticks(n));
     const leftAxis = horizontal ? otherAxis(d3.axisLeft(leftScale)) : valueAxis(d3.axisLeft(leftScale), yTicks);
     const left = child(svg, "g", "d3-axis d3-axis-y").call(leftAxis);
+    if (horizontal && other.step) thin(left, other.step(), false);
     box.left = Math.ceil(left.node().getBBox().width) + 10 + (leftTitle ? 20 : 0);
     left.attr("transform", `translate(${box.left},0)`);
 
     bottomScale.range([box.left, width - box.right]);
     const xTicks = Math.max(2, Math.floor((width - box.left - box.right) / 80));
     const bottomAxis = horizontal ? valueAxis(d3.axisBottom(bottomScale), xTicks) : otherAxis(d3.axisBottom(bottomScale), xTicks);
-    child(svg, "g", "d3-axis d3-axis-x").attr("transform", `translate(0,${height - box.bottom})`).call(bottomAxis);
+    const bottom = child(svg, "g", "d3-axis d3-axis-x").attr("transform", `translate(0,${height - box.bottom})`).call(bottomAxis);
+    if (!horizontal && other.step) thin(bottom, other.step(), true);
 
     // Value grid: hairlines across the plot at the value ticks.
     const grid = horizontal
@@ -177,6 +203,21 @@
     return { left: box.left, right: width - box.right, top: box.top, bottom: height - box.bottom };
   }
 
+  /**
+   * Hides band axis labels that would overlap: keeps every n-th tick.
+   * `across` is true when labels sit side by side (a bottom axis).
+   */
+  function thin(axis, step, across) {
+    const ticks = axis.selectAll(".tick").style("display", null);
+    let need = 0;
+    ticks.select("text").each(function () {
+      const b = this.getBBox();
+      need = Math.max(need, across ? b.width : b.height);
+    });
+    const every = Math.max(1, Math.ceil((need + 6) / step));
+    if (every > 1) ticks.style("display", (_, i) => (i % every === 0 ? null : "none"));
+  }
+
   /** Domain of `values` widened by `min`/`max` options. */
   function valueDomain(values, options, includeZero, log) {
     let list = values.filter((v) => v !== null && (!log || v > 0));
@@ -196,20 +237,22 @@
     const { svg, options, data, duration, el } = ctx;
     const horizontal = options.horizontal;
     const value = d3.scaleLinear().domain(valueDomain(data.map((d) => d.value), options, true, false)).nice();
-    const band = d3.scaleBand().domain(data.map((d) => d.label)).padding(0.2);
-    frame(ctx, { horizontal, value, other: band, otherAxis: (axis) => axis.tickSizeOuter(0), valueFormat: ctx.valueFormat });
+    const band = d3.scaleBand().domain(data.map((d) => d.key)).padding(0.2);
+    const labelOf = new Map(data.map((d) => [d.key, d.label]));
+    const tickLabel = (key) => (horizontal ? cut(labelOf.get(key)) : labelOf.get(key));
+    frame(ctx, { horizontal, value, other: band, otherAxis: (axis) => axis.tickSizeOuter(0).tickFormat(tickLabel), valueFormat: ctx.valueFormat });
     const thick = Math.min(band.bandwidth(), barMax(el));
     const offset = (band.bandwidth() - thick) / 2;
     const zero = value(0);
     const rows = data.filter((d) => d.value !== null);
     const path = (d, v) => {
-      const a0 = band(d.label) + offset;
+      const a0 = band(d.key) + offset;
       return barPath(horizontal, a0, a0 + thick, zero, value(v));
     };
     const marks = child(svg, "g", "d3-marks");
     const bars = marks
       .selectAll("path.d3-bar")
-      .data(rows, (d) => d.label)
+      .data(rows, (d) => d.key)
       .join(
         (enter) => enter.append("path").attr("d", (d) => path(d, 0)),
         revive,
@@ -217,15 +260,19 @@
       );
     paint(bars, "d3-bar", options, () => 0);
     tx(bars, duration).attr("d", (d) => path(d, d.value));
+    const barNode = new Map();
+    bars.each(function (d) {
+      barNode.set(d.key, this);
+    });
     return rows.map((d) => {
-      const center = band(d.label) + band.bandwidth() / 2;
+      const center = band(d.key) + band.bandwidth() / 2;
       const end = value(d.value);
       return {
         x: horizontal ? end : center,
         y: horizontal ? center : Math.min(end, zero),
         axis: center,
         text: `${d.label}: ${ctx.format(d.value)}`,
-        mark: bars.filter((b) => b.label === d.label).node(),
+        mark: barNode.get(d.key),
       };
     });
   }
@@ -239,6 +286,7 @@
     // A log scale drops values that are not positive.
     const series = data.map((s) => ({
       name: s.name,
+      key: s.key,
       points: s.points
         .filter((p) => !xLog || p[0] > 0)
         .map(([x, y]) => [x, yLog && y !== null && y <= 0 ? null : y]),
@@ -262,15 +310,15 @@
     const defined = (p) => p[1] !== null;
     const curve = CURVES[options.curve];
     const line = d3.line().defined(defined).curve(curve).x((p) => x(p[0])).y((p) => y(p[1]));
-    const index = new Map(series.map((s, i) => [s.name, i]));
-    const colorOf = (s) => index.get(s.name);
+    const index = new Map(series.map((s, i) => [s.key, i]));
+    const colorOf = (s) => index.get(s.key);
 
     if (kind === "area") {
       const base = y(yLog ? y.domain()[0] : Math.max(0, y.domain()[0]));
       const area = d3.area().defined(defined).curve(curve).x((p) => x(p[0])).y0(base).y1((p) => y(p[1]));
       const fills = marks
         .selectAll("path.d3-area")
-        .data(series, (s) => s.name)
+        .data(series, (s) => s.key)
         .join((enter) => enter.append("path").style("opacity", 0), revive, (old) => exit(old, duration));
       paint(fills, "d3-area", options, colorOf);
       tx(fills, duration).style("opacity", 1).attr("d", (s) => area(s.points));
@@ -278,14 +326,14 @@
     if (kind !== "scatter") {
       const lines = marks
         .selectAll("path.d3-line")
-        .data(series, (s) => s.name)
+        .data(series, (s) => s.key)
         .join((enter) => enter.append("path").style("opacity", 0), revive, (old) => exit(old, duration));
       paint(lines, "d3-line", options, colorOf);
       tx(lines, duration).style("opacity", 1).attr("d", (s) => line(s.points));
     }
     const showDots = kind === "scatter" || options.dots;
     const dotData = showDots
-      ? series.flatMap((s) => s.points.flatMap((p, j) => (defined(p) ? [{ key: `${s.name}\u0000${j}`, s, p }] : [])))
+      ? series.flatMap((s) => s.points.flatMap((p, j) => (defined(p) ? [{ key: `${s.key}\u0001${j}`, s, p }] : [])))
       : [];
     const radius = kind === "scatter" ? options.radius : 4;
     const dots = marks
@@ -333,11 +381,11 @@
     const pie = d3.pie().sort(null).value((d) => d.value).padAngle(rows.length > 1 && outer > 0 ? 2 / outer : 0);
     const arc = d3.arc().innerRadius(inner).outerRadius(outer);
     const arcs = pie(rows);
-    const index = new Map(data.map((d, i) => [d.label, i]));
+    const index = new Map(data.map((d, i) => [d.key, i]));
     const marks = child(svg, "g", "d3-marks").attr("transform", `translate(${width / 2},${height / 2})`);
     const slices = marks
       .selectAll("path.d3-arc")
-      .data(arcs, (a) => a.data.label)
+      .data(arcs, (a) => a.data.key)
       .join(
         (enter) => enter.append("path").each(function (a) {
           this._current = { startAngle: a.startAngle, endAngle: a.startAngle, padAngle: a.padAngle };
@@ -345,7 +393,11 @@
         revive,
         (old) => exit(old, duration),
       );
-    paint(slices, "d3-arc", options, (a) => index.get(a.data.label));
+    paint(slices, "d3-arc", options, (a) => index.get(a.data.key));
+    const sliceNode = new Map();
+    slices.each(function (a) {
+      sliceNode.set(a.data.key, this);
+    });
     if (duration > 0) {
       slices
         .transition()
@@ -368,7 +420,7 @@
         angle: [a.startAngle, a.endAngle],
         ring: [inner, outer],
         text: `${a.data.label}: ${ctx.format(a.data.value)} (${percent(a.data.value / total)})`,
-        mark: slices.filter((o) => o.data.label === a.data.label).node(),
+        mark: sliceNode.get(a.data.key),
       };
     });
   }
@@ -404,8 +456,17 @@
     const tip = state.tooltip;
     tip.textContent = item.text;
     tip.hidden = false;
-    tip.style.setProperty("left", `${Math.max(0, Math.min(state.size.width, item.x))}px`);
-    tip.style.setProperty("top", `${item.y}px`);
+    if (state.live.textContent !== item.text) state.live.textContent = item.text;
+    // Keep the box inside the plot: center it on the item, above it, or
+    // below it when there is no room above.
+    const { width, height } = state.size;
+    const w = tip.offsetWidth;
+    const h = tip.offsetHeight;
+    const left = Math.max(0, Math.min(width - w, item.x - w / 2));
+    const above = item.y - h - 10;
+    const top = above >= 0 ? above : Math.max(0, Math.min(height - h, item.y + 10));
+    tip.style.setProperty("left", `${left}px`);
+    tip.style.setProperty("top", `${top}px`);
     const svg = d3.select(state.svg);
     svg.selectAll(".d3-active").classed("d3-active", false);
     if (item.mark) d3.select(item.mark).classed("d3-active", true);
@@ -416,6 +477,7 @@
 
   /** Hides the tooltip, the active mark, and the crosshair. */
   function hide(state) {
+    if (!state.tooltip) return;
     state.tooltip.hidden = true;
     const svg = d3.select(state.svg);
     svg.selectAll(".d3-active").classed("d3-active", false);
@@ -466,16 +528,24 @@
       plot.className = "d3-plot";
       const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
       svg.setAttribute("role", "img");
-      svg.setAttribute("tabindex", "0");
+      // The visual tooltip is for sighted users. Screen readers hear the
+      // live region, which stays in the tree so the first change speaks.
       const tooltip = document.createElement("div");
       tooltip.className = "d3-tooltip";
-      tooltip.setAttribute("role", "status");
+      tooltip.setAttribute("aria-hidden", "true");
       tooltip.hidden = true;
-      plot.append(svg, tooltip);
+      const live = document.createElement("div");
+      live.className = "d3-live";
+      live.setAttribute("role", "status");
+      const hint = document.createElement("span");
+      hint.className = "d3-hint";
+      hint.id = `d3-hint-${(nextId += 1)}`;
+      hint.textContent = "Use the arrow keys to read the values.";
+      plot.append(svg, tooltip, live, hint);
       const caption = el.firstElementChild?.tagName === "FIGCAPTION" ? el.firstElementChild : null;
       if (caption) caption.after(plot);
       else el.prepend(plot);
-      Object.assign(state, { plot, svg, tooltip });
+      Object.assign(state, { plot, svg, tooltip, live, hint });
       listen(state);
       state.resize = new ResizeObserver(() => {
         const box = plot.getBoundingClientRect();
@@ -487,13 +557,14 @@
     }
     state.plot.style.setProperty("aspect-ratio", options.aspect === null ? null : String(options.aspect));
     const caption = el.querySelector(":scope > figcaption");
-    state.svg.setAttribute("aria-label", options.label ?? caption?.textContent.trim() ?? `${kind.name} chart`);
+    state.name = options.label ?? caption?.textContent.trim() ?? `${kind.name} chart`;
+    state.svg.setAttribute("aria-label", state.name);
   }
 
   /** Draws (or redraws) the legend after the plot. */
   function drawLegend(state) {
     const { kind, data, options } = state;
-    const names = !Array.isArray(data) || !kind.builtIn ? [] : kind.shape === "categories" ? data.map((d) => d.label) : data.map((s) => s.name);
+    const names = !Array.isArray(data) || !kind.builtIn ? [] : data.map((d) => ({ key: d.key, text: d.label ?? d.name }));
     const show = kind.builtIn && kind.name !== "bar" && (options.legend ?? names.length >= 2);
     if (!show) {
       state.legend?.remove();
@@ -503,23 +574,77 @@
     if (!state.legend) {
       state.legend = document.createElement("ul");
       state.legend.className = "d3-legend";
+      // list-style: none drops list semantics in Safari.
+      state.legend.setAttribute("role", "list");
       state.plot.after(state.legend);
     }
     const items = d3
       .select(state.legend)
       .selectAll("li")
-      .data(names, (n) => n)
+      .data(names, (n) => n.key)
       .join((enter) => {
-        const li = enter.append("li");
+        const li = enter.append("li").attr("role", "listitem");
         li.append("span").attr("class", "d3-swatch").attr("aria-hidden", "true");
         li.append("span").attr("class", "d3-legend-label");
         return li;
       });
-    items.select(".d3-legend-label").text((n) => n);
+    items.select(".d3-legend-label").text((n) => n.text);
     items.select(".d3-swatch").each(function (_, i) {
       this.setAttribute("class", `d3-swatch d3-s${i % PALETTE}`);
       this.style.setProperty("--d3-c", options.colors[i] ?? null);
     });
+  }
+
+  /** Rewrites the data table for the current data (built-in kinds). */
+  function drawTable(state) {
+    const { el, kind, data, options } = state;
+    const wrap = el.querySelector(":scope > .d3-table");
+    if (!wrap || !kind.builtIn || state.tableData === data) return;
+    state.tableData = data;
+    const time = options.xScale === "time";
+    const categories = kind.shape === "categories";
+    const head = categories ? [options.xLabel ?? "Label", options.yLabel ?? "Value"] : ["Series", options.xLabel ?? "x", options.yLabel ?? "Value"];
+    const rows = categories
+      ? data.map((d) => [d.label, tableNumber(d.value)])
+      : data.flatMap((s) => s.points.map(([x, y]) => [s.name, time ? tableTime(x) : tableNumber(x), tableNumber(y)]));
+    const table = d3.create("table");
+    if (state.name && state.name !== `${kind.name} chart`) table.append("caption").text(state.name);
+    table.append("thead").append("tr").selectAll("th").data(head).join("th").attr("scope", "col").text((t) => t);
+    const tr = table.append("tbody").selectAll("tr").data(rows).join("tr");
+    tr.selectAll(":scope > *")
+      .data((row) => row)
+      .join((enter) => enter.append((_, i) => document.createElement(i === 0 ? "th" : "td")))
+      .attr("scope", (_, i) => (i === 0 ? "row" : null))
+      .text((t) => t);
+    wrap.replaceChildren(table.node());
+  }
+
+  /** Shows "No data" when a built-in chart has nothing to show. */
+  function drawEmpty(state) {
+    const svg = d3.select(state.svg);
+    const empty = state.kind.builtIn && state.items.length === 0;
+    svg.select(":scope > .d3-empty").remove();
+    if (empty) {
+      svg.append("text").attr("class", "d3-empty").attr("text-anchor", "middle").attr("x", state.size.width / 2).attr("y", state.size.height / 2).text("No data");
+      state.svg.setAttribute("aria-label", `${state.name}. No data`);
+    }
+    // A tab stop only when the keys can read something.
+    if (state.items.length > 0) {
+      state.svg.setAttribute("tabindex", "0");
+      state.svg.setAttribute("aria-describedby", state.hint.id);
+    } else {
+      state.svg.removeAttribute("tabindex");
+      state.svg.removeAttribute("aria-describedby");
+    }
+  }
+
+  /** Warns once when a chart has more series than palette colors. */
+  function warnPalette(state) {
+    const n = Array.isArray(state.data) && state.kind.builtIn && state.kind.name !== "bar" ? state.data.length : 0;
+    if (n > PALETTE && !state.warned) {
+      state.warned = true;
+      console.warn(`autumn-plugin-d3: ${n} series, but the palette has ${PALETTE} colors; colors repeat`);
+    }
   }
 
   /** Draws the chart. `animate` uses the transition time. */
@@ -556,6 +681,9 @@
         state.items = [];
       }
       drawLegend(state);
+      drawEmpty(state);
+      drawTable(state);
+      warnPalette(state);
       if (state.active !== null && !state.tooltip.hidden) show(state, Math.min(state.active, state.items.length - 1));
       const first = !state.ready;
       state.ready = true;
@@ -581,7 +709,7 @@
     state.resize?.disconnect();
     state.plot?.remove();
     state.legend?.remove();
-    Object.assign(state, { plot: null, svg: null, tooltip: null, legend: null, resize: null });
+    Object.assign(state, { plot: null, svg: null, tooltip: null, live: null, hint: null, legend: null, resize: null });
   }
 
   /** Loads `data-d3-src`, then schedules the next refresh. */
@@ -594,18 +722,31 @@
     state.abort = controller;
     try {
       const response = await fetch(url, { headers: { Accept: "application/json" }, credentials: "same-origin", signal: controller.signal });
+      if (response.redirected && !P.sameOrigin(response.url, location.href)) {
+        throw new Error(`data-d3-src redirected to another origin; it must have the same origin as the page`);
+      }
       if (!response.ok) throw new Error(`data-d3-src: HTTP ${response.status}`);
       const text = await response.text();
       if (gen !== state.gen) return;
       state.data = P.parseData(state.kind, text);
+      state.failures = 0;
       draw(state, true);
     } catch (error) {
       if (gen !== state.gen) return;
+      state.failures += 1;
       fail(state, error);
     }
     if (gen === state.gen && state.options.refresh !== null) {
-      state.timer = setTimeout(() => load(state), state.options.refresh);
+      // Back off after failures: twice the wait per failure, up to a cap.
+      const wait = Math.min(state.options.refresh * 2 ** state.failures, Math.max(state.options.refresh, MAX_BACKOFF_MS));
+      state.timer = setTimeout(() => refresh(state), wait);
     }
+  }
+
+  /** Runs a refresh, or waits for the page to show again. */
+  function refresh(state) {
+    if (document.hidden) state.waiting = true;
+    else load(state);
   }
 
   /** Reads the options and data, then draws or loads. */
@@ -615,6 +756,7 @@
     state.gen += 1;
     state.abort?.abort();
     clearTimeout(state.timer);
+    Object.assign(state, { waiting: false, failures: 0 });
     state.options = P.readOptions((name) => el.getAttribute(name));
     if (!kind) return fail(state, new Error(`unknown chart kind "${el.getAttribute(ATTR.kind)}"`));
     if (!kind.builtIn && !registry.has(kind.name)) return setState(el, "pending");
@@ -681,6 +823,11 @@
       options: null,
       items: [],
       active: null,
+      name: null,
+      failures: 0,
+      waiting: false,
+      warned: false,
+      tableData: null,
       size: { width: 0, height: 0 },
       ready: false,
       destroyed: false,
@@ -688,6 +835,8 @@
       plot: null,
       svg: null,
       tooltip: null,
+      live: null,
+      hint: null,
       legend: null,
       resize: null,
       abort: null,
@@ -790,6 +939,19 @@
       attributeFilter: WATCHED,
     });
     document.addEventListener("htmx:afterSwap", (event) => scan(event.target));
+    // Escape hides every tooltip, also one that a hover opened (WCAG 1.4.13).
+    document.addEventListener("keydown", (event) => {
+      if (event.key === "Escape") live.forEach(hide);
+    });
+    document.addEventListener("visibilitychange", () => {
+      if (document.hidden) return;
+      for (const state of live.values()) {
+        if (state.waiting) {
+          state.waiting = false;
+          load(state);
+        }
+      }
+    });
   }
 
   // Deferred scripts run before DOMContentLoaded. Wait for it, so page

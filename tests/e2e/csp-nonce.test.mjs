@@ -25,6 +25,7 @@ test("nonce mode: the CSP is strict and every chart kind draws", async () => {
   for (const [path, ids] of [
     ["/bar", ["chart"]],
     ["/line", ["chart"]],
+    ["/area", ["chart"]],
     ["/scatter", ["chart"]],
     ["/pie", ["chart"]],
     ["/options", ["wide", "animated"]],

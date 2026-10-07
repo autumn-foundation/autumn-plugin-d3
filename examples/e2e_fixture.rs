@@ -53,6 +53,9 @@ async fn main() {
             slow,
             slow_json,
             no_d3,
+            clobber,
+            redirect_json,
+            remote_redirect,
         ])
         .run()
         .await;
@@ -121,7 +124,7 @@ async fn bar() -> Markup {
 #[autumn_web::get("/horizontal")]
 async fn horizontal() -> Markup {
     page(&html! {
-        (Chart::bar(fruit()).id("chart").horizontal().format(&Format::integer()))
+        (Chart::bar(fruit()).id("chart").horizontal().format(Format::integer()))
         (Chart::bar([("Up", 10.0), ("Down", -5.0), ("None", f64::NAN)]).id("signed"))
     })
 }
@@ -150,7 +153,7 @@ async fn scatter() -> Markup {
         ])
         .id("chart")
         .radius(6.0)
-        .x_format(&Format::decimal(1))
+        .x_format(Format::decimal(1))
         .colors([Color::hex(0x00ff_0000), Color::hex(0x0000_00ff)]))
     })
 }
@@ -183,6 +186,7 @@ async fn bad() -> Markup {
         figure id="kind" data-d3="Not A Kind" data-d3-data="[]" {}
         figure id="nodata" data-d3="bar" {}
         figure id="format" data-d3="bar" data-d3-data=r#"[["a",1]]"# data-d3-format="%%%bad" {}
+        figure id="wide-format" data-d3="bar" data-d3-data=r#"[["a",1]]"# data-d3-format="0>536870000" data-d3-x-format="0>536870000" {}
         (Chart::bar(fruit()).id("good"))
     })
 }
@@ -322,4 +326,26 @@ async fn no_d3() -> Markup {
             body { (Chart::bar(fruit()).id("chart")) }
         }
     }
+}
+
+/// User content with `id="AutumnD3"` (a DOM clobbering attempt).
+#[autumn_web::get("/clobber")]
+async fn clobber() -> Markup {
+    page(&html! {
+        p id="AutumnD3" { "user comment" }
+        (Chart::bar(fruit()).id("chart"))
+    })
+}
+
+#[autumn_web::get("/data/redirect.json")]
+async fn redirect_json() -> autumn_web::Redirect {
+    autumn_web::Redirect::to("https://example.com/x.json")
+}
+
+#[autumn_web::get("/remote-redirect")]
+async fn remote_redirect() -> Markup {
+    page(&html! {
+        (Chart::<Bar>::from_src("/data/redirect.json").id("chart"))
+        (Chart::<Bar>::from_src("/data/missing.json").id("failing").refresh(Duration::from_secs(1)))
+    })
 }

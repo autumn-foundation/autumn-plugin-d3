@@ -65,7 +65,7 @@ fn sales_chart(year: u32) -> Markup {
             .aspect(3.0)
             .label(format!("Monthly sales, {year}"))
             .y_label("Revenue")
-            .format(&Format::currency(0)))
+            .format(Format::currency(0)))
     }
 }
 
@@ -145,7 +145,7 @@ fn time_cards() -> Markup {
                 .label("Daily visits, September 2026")
                 .x_scale(Scale::Time)
                 .curve(Curve::Monotone)
-                .format(&Format::integer()))
+                .format(Format::integer()))
         }))
         (card("Signups", &html! {
             (Chart::area(signups)
@@ -179,7 +179,7 @@ fn other_cards() -> Markup {
                 .label("Price against rating")
                 .x_label("Price (USD)")
                 .y_label("Rating")
-                .x_format(&Format::currency(0))
+                .x_format(Format::currency(0))
                 .y_min(0.0)
                 .y_max(5.0))
         }))

@@ -220,8 +220,8 @@ impl Format {
         Self(format!("$,.{}f", places.min(MAX_DECIMALS)))
     }
 
-    /// A raw d3-format specifier. The runtime ignores a bad specifier and
-    /// uses the default format.
+    /// A raw d3-format specifier. The runtime ignores a bad specifier, or
+    /// one with a width above 64, and uses the default format.
     #[must_use]
     pub fn d3(spec: impl Into<String>) -> Self {
         Self(spec.into())
@@ -231,6 +231,11 @@ impl Format {
     #[must_use]
     pub fn spec(&self) -> &str {
         &self.0
+    }
+
+    /// The d3-format specifier, by value.
+    pub(crate) fn into_spec(self) -> String {
+        self.0
     }
 }
 
@@ -292,9 +297,24 @@ pub(crate) fn finite(v: f64) -> Option<f64> {
     v.is_finite().then_some(v)
 }
 
-/// Formats a number for the fallback table. Missing values show as `—`.
+/// Formats a number for the fallback table, like JavaScript
+/// `String(number)`: exponent form outside `1e-6 ..= 1e21`, and `-0` is
+/// `0`. Missing values show as `—`.
 pub(crate) fn cell(v: f64) -> String {
-    finite(v).map_or_else(|| "—".to_owned(), |v| v.to_string())
+    let Some(v) = finite(v) else {
+        return "—".to_owned();
+    };
+    if v == 0.0 {
+        return "0".to_owned();
+    }
+    if (1e-6..1e21).contains(&v.abs()) {
+        return v.to_string();
+    }
+    let text = format!("{v:e}");
+    match text.split_once('e') {
+        Some((mantissa, exp)) if !exp.starts_with('-') => format!("{mantissa}e+{exp}"),
+        _ => text,
+    }
 }
 
 /// Formats Unix milliseconds as a UTC ISO 8601 string for the fallback
@@ -434,6 +454,13 @@ mod tests {
     fn cells_show_missing_values_as_a_dash() {
         assert_eq!(cell(1.5), "1.5");
         assert_eq!(cell(f64::NEG_INFINITY), "—");
+        // The same text as JavaScript String(number).
+        assert_eq!(cell(-0.0), "0");
+        assert_eq!(cell(1e21), "1e+21");
+        assert_eq!(cell(-2.5e30), "-2.5e+30");
+        assert_eq!(cell(1e-7), "1e-7");
+        assert_eq!(cell(0.000_001), "0.000001");
+        assert_eq!(cell(123_456_789.0), "123456789");
     }
 
     proptest! {

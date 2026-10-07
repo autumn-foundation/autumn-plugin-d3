@@ -220,6 +220,7 @@ describe("declarative markup", () => {
     await until(page, () => Number(document.querySelector("#chart svg").getAttribute("width")) === 300);
     const bars = await boxes(page, "chart", ".d3-bar");
     assert.ok(bars.every((b) => b.x + b.width <= 16 + 300), "bars fit the new width");
+    await assertClean(page);
   });
 
   test("htmx swaps start new charts and free old ones", async () => {
@@ -251,6 +252,9 @@ describe("failures", () => {
     assert.equal(await page.locator("#json .d3-plot").count(), 0, "no empty plot");
     await waitState(page, "format", "ready");
     assert.ok((await texts(page, "format", ".d3-axis-y .tick text")).length > 0, "bad format uses the default");
+    await waitState(page, "wide-format", "ready");
+    const longest = await page.evaluate(() => Math.max(...[...document.querySelectorAll("#wide-format text")].map((t) => t.textContent.length)));
+    assert.ok(longest < 100, `a huge format width falls back to the default: ${longest}`);
     assert.deepEqual(page.errors, []);
   });
 });
@@ -266,11 +270,9 @@ describe("remote data", () => {
 
   test("bad sources fail without a cross-origin request", async () => {
     const requests = [];
-    const page = await app.open("/remote-bad", {
-      init: () => {},
-    });
-    page.on("request", (r) => requests.push(r.url()));
+    const page = await app.open("/remote-bad", { onRequest: (url) => requests.push(url) });
     for (const id of ["missing", "cross", "html"]) await waitState(page, id, "error");
+    assert.ok(requests.some((u) => u.includes("/data/missing.json")), "the recorder sees the page requests");
     const messages = await page.evaluate(() => window.__details.filter((d) => typeof d === "string"));
     assert.ok(messages.some((m) => /HTTP 404/.test(m)), messages.join("; "));
     assert.ok(messages.some((m) => /same origin/.test(m)), messages.join("; "));
@@ -352,7 +354,9 @@ describe("interaction", () => {
     assert.equal(await tip.textContent(), "Apples: 30", "stays at the start");
     await page.keyboard.press("Escape");
     assert.equal(await tip.isHidden(), true);
-    assert.equal(await tip.getAttribute("role"), "status");
+    // Screen readers hear a separate live region; the visual box is hidden from them.
+    assert.equal(await tip.getAttribute("aria-hidden"), "true");
+    assert.equal(await page.locator("#chart .d3-live").getAttribute("role"), "status");
     await assertClean(page);
   });
 
@@ -373,6 +377,7 @@ describe("interaction", () => {
     await page.mouse.move(1, 1);
     await until(page, () => document.querySelector("#chart .d3-tooltip").hidden);
     assert.equal(await crosshair(), "none");
+    await assertClean(page);
   });
 
   test("pie and scatter tooltips", async () => {
@@ -401,8 +406,10 @@ describe("motion and options", () => {
     assert.equal(await duration(motion, "still"), 0);
     // A transition runs: right after the first draw the bar is not yet full.
     await until(motion, () => document.querySelectorAll("#animated .d3-bar").length === 3);
+    const early = (await boxes(motion, "animated", ".d3-bar"))[1].height;
     await sleep(900);
     const bars = await boxes(motion, "animated", ".d3-bar");
+    assert.ok(early < bars[1].height * 0.95, `bars grow: ${early} then ${bars[1].height}`);
     assert.ok(near(bars[1].height, 2 * bars[0].height), "transitions end at the data");
     await assertClean(motion);
   });
@@ -532,6 +539,7 @@ describe("edge cases", () => {
     const page = await app.open("/pie", { reducedMotion: "no-preference" });
     await waitState(page, "chart", "ready");
     await page.evaluate(() => document.getElementById("chart").autumnD3.update([["Apples", 1], ["Kiwis", 1]]));
+    assert.ok((await page.locator("#chart .d3-arc").count()) > 2, "old slices are still fading");
     await sleep(800);
     assert.deepEqual(await texts(page, "chart", ".d3-legend li"), ["Apples", "Kiwis"]);
     assert.equal(await page.locator("#chart .d3-arc").count(), 2, "old slices fade out");
@@ -577,14 +585,23 @@ describe("edge cases", () => {
 
   test("a chart removed while its data loads makes no error", async () => {
     const page = await app.open("/slow");
-    await sleep(100);
+    await waitState(page, "chart", "loading");
     await page.evaluate(() => {
-      document.getElementById("chart").remove();
-      document.getElementById("inline").remove();
+      // Events from a detached element do not reach the document: listen on
+      // the elements themselves.
+      window.__detached = [];
+      window.__handles = [];
+      for (const id of ["chart", "inline"]) {
+        const el = document.getElementById(id);
+        el.addEventListener("d3:error", () => window.__detached.push(id));
+        el.addEventListener("d3:render", () => window.__detached.push(`${id} render`));
+        window.__handles.push(el.autumnD3);
+        el.remove();
+      }
     });
     await sleep(1200);
-    const events = await page.evaluate(() => window.__events.filter(([t]) => t === "d3:error"));
-    assert.deepEqual(events, []);
+    assert.deepEqual(await page.evaluate(() => window.__detached), [], "no error and no draw after removal");
+    assert.deepEqual(await page.evaluate(() => window.__handles.map((h) => h.destroyed)), [true, true]);
     assert.deepEqual(page.errors, []);
   });
 
@@ -705,5 +722,192 @@ describe("review regressions", () => {
     await waitState(page, "added", "ready");
     await sleep(100);
     assert.equal(await page.locator("#added .d3-plot").count(), 1);
+  });
+});
+
+describe("accessibility review", () => {
+  /** Rows of the data table in `#id`, as arrays of cell text. */
+  const rows = (page, id) =>
+    page.evaluate((id) => [...document.querySelectorAll(`#${id} .d3-table tbody tr`)].map((tr) => [...tr.children].map((c) => c.textContent)), id);
+
+  test("the data table follows loaded and updated data", async () => {
+    const page = await app.open("/remote");
+    await waitState(page, "chart", "ready");
+    assert.deepEqual(await rows(page, "chart"), [["Apples", "30"], ["Pears", "60"], ["Plums", "15"]]);
+    await until(page, () => document.querySelectorAll("#both .d3-bar").length === 3);
+    assert.deepEqual((await rows(page, "both")).map((r) => r[0]), ["Apples", "Pears", "Plums"]);
+    await page.evaluate(() => document.getElementById("chart").setAttribute("data-d3-data", '[["Kiwis", 5]]'));
+    await until(page, () => document.querySelector("#chart .d3-table tbody tr th")?.textContent === "Kiwis");
+    const line = await app.open("/line");
+    await waitState(line, "chart", "ready");
+    await line.evaluate(() => document.getElementById("chart").autumnD3.update([{ name: "N", points: [[0, 2]] }]));
+    assert.deepEqual(await rows(line, "chart"), [["N", "1970-01-01", "2"]]);
+    assert.equal(await line.locator("#chart .d3-table caption").textContent(), "Visits");
+  });
+
+  test("dark theme gives the tooltip a dark surface", async () => {
+    const page = await app.open("/bar");
+    await waitState(page, "chart", "ready");
+    await page.evaluate(() => document.documentElement.setAttribute("data-theme", "dark"));
+    await page.focus("#chart svg");
+    const bg = await page.evaluate(() => getComputedStyle(document.querySelector("#chart .d3-tooltip")).backgroundColor);
+    const [r, g, b] = bg.match(/\d+/g).map(Number);
+    assert.ok(r + g + b < 3 * 80, `dark tooltip background: ${bg}`);
+  });
+
+  test("the tooltip stays inside the plot", async () => {
+    const page = await app.open("/line");
+    await waitState(page, "chart", "ready");
+    await page.evaluate(() => document.getElementById("chart").style.setProperty("width", "220px"));
+    await until(page, () => Number(document.querySelector("#chart svg").getAttribute("width")) === 220);
+    await page.focus("#chart svg");
+    for (const key of ["Home", "End"]) {
+      await page.keyboard.press(key);
+      const plot = await page.locator("#chart .d3-plot").boundingBox();
+      const tip = await page.locator("#chart .d3-tooltip").boundingBox();
+      assert.ok(tip.x >= plot.x - 1 && tip.x + tip.width <= plot.x + plot.width + 1, `${key}: ${JSON.stringify({ plot, tip })}`);
+      assert.ok(tip.y >= plot.y - 1, `${key}: not above the plot: ${JSON.stringify({ plot, tip })}`);
+    }
+  });
+
+  test("keyboard hint, live region, Escape, and no tab stop without items", async () => {
+    const page = await app.open("/bar");
+    await waitState(page, "chart", "ready");
+    const hint = await page.evaluate(() => {
+      const id = document.querySelector("#chart svg").getAttribute("aria-describedby");
+      return document.getElementById(id)?.textContent;
+    });
+    assert.match(hint, /arrow keys/);
+    await page.focus("#chart svg");
+    assert.equal(await page.locator("#chart .d3-live").textContent(), "Apples: 30");
+    const [bar] = await boxes(page, "chart", ".d3-bar");
+    await page.locator("#chart svg").blur();
+    await page.mouse.move(bar.x + bar.width / 2, bar.y + bar.height / 2);
+    await until(page, () => !document.querySelector("#chart .d3-tooltip").hidden);
+    await page.keyboard.press("Escape");
+    assert.equal(await page.locator("#chart .d3-tooltip").isHidden(), true, "Escape hides a hover tooltip");
+    const empty = await app.open("/empty");
+    await waitState(empty, "bar", "ready");
+    assert.equal(await empty.locator("#bar svg").getAttribute("tabindex"), null);
+    const custom = await app.open("/custom");
+    await waitState(custom, "chart", "ready");
+    assert.equal(await custom.locator("#chart svg").getAttribute("tabindex"), null);
+  });
+
+  test("empty charts say so", async () => {
+    const page = await app.open("/empty");
+    for (const id of ["bar", "pie"]) {
+      await waitState(page, id, "ready");
+      assert.equal(await page.locator(`#${id} .d3-empty`).textContent(), "No data");
+      assert.match(await page.locator(`#${id} svg`).getAttribute("aria-label"), /No data$/);
+    }
+    const bar = await app.open("/bar");
+    await waitState(bar, "chart", "ready");
+    assert.equal(await bar.locator("#chart .d3-empty").count(), 0);
+  });
+
+  test("dense band axes thin their labels; axis text is 12px", async () => {
+    const page = await app.open("/bar");
+    await waitState(page, "chart", "ready");
+    assert.equal(await page.evaluate(() => getComputedStyle(document.querySelector("#chart .d3-axis-x text")).fontSize), "12px");
+    await page.evaluate(() => {
+      const el = document.getElementById("chart");
+      el.style.setProperty("width", "300px");
+      el.autumnD3.update(Array.from({ length: 30 }, (_, i) => [`Label ${i + 1}`, i + 1]));
+    });
+    await until(page, () => document.querySelectorAll("#chart .d3-bar").length === 30);
+    await until(page, () => Number(document.querySelector("#chart svg").getAttribute("width")) === 300);
+    const labels = await page.evaluate(() =>
+      [...document.querySelectorAll("#chart .d3-axis-x .tick")]
+        .filter((t) => getComputedStyle(t).display !== "none")
+        .map((t) => t.getBoundingClientRect()),
+    );
+    assert.ok(labels.length < 30 && labels.length > 1, `thinned: ${labels.length}`);
+    for (let i = 1; i < labels.length; i += 1) assert.ok(labels[i].x >= labels[i - 1].x + labels[i - 1].width, "no overlap");
+  });
+
+  test("more than 8 series warns; legends are lists; forced colors keep swatches", async () => {
+    const page = await app.open("/line", { forcedColors: "active" });
+    await waitState(page, "chart", "ready");
+    assert.equal(await page.locator("#chart .d3-legend").getAttribute("role"), "list");
+    const swatch = await page.evaluate(() => getComputedStyle(document.querySelector("#chart .d3-swatch")).backgroundColor);
+    assert.equal(swatch, "rgb(42, 120, 214)", "slot 1 color in forced colors");
+    await page.evaluate(() =>
+      document.getElementById("chart").autumnD3.update(Array.from({ length: 9 }, (_, i) => ({ name: `s${i}`, points: [[0, i]] }))),
+    );
+    assert.ok((await page.evaluate(() => window.__warnings)).some((w) => /9 series/.test(w)));
+  });
+});
+
+describe("security review", () => {
+  test("an element with id AutumnD3 does not stop the runtime", async () => {
+    const page = await app.open("/clobber");
+    await waitState(page, "chart", "ready");
+    assert.equal(await page.evaluate(() => typeof window.AutumnD3.register), "function");
+  });
+
+  test("data-d3-src fails on a cross-origin redirect; failures back off", async () => {
+    let fetches = 0;
+    const page = await app.open("/remote-redirect", { onRequest: (url) => url.includes("/data/missing.json") && (fetches += 1) });
+    await waitState(page, "chart", "error");
+    await waitState(page, "failing", "error");
+    await sleep(3500);
+    assert.ok(fetches <= 2, `backoff after failures: ${fetches} fetches in 3.5 s`);
+  });
+
+  test("refresh pauses while the page is hidden", async () => {
+    const page = await app.open("/live", {
+      init: () => {
+        window.__hidden = false;
+        Object.defineProperty(Document.prototype, "hidden", { get: () => window.__hidden, configurable: true });
+      },
+    });
+    await waitState(page, "chart", "ready");
+    let fetches = 0;
+    page.on("request", (r) => r.url().includes("/data/live.json") && (fetches += 1));
+    await page.evaluate(() => (window.__hidden = true));
+    await sleep(2500);
+    assert.ok(fetches <= 1, `no refresh while hidden: ${fetches}`);
+    const before = fetches;
+    await page.evaluate(() => {
+      window.__hidden = false;
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+    await sleep(600);
+    assert.ok(fetches > before, "refresh resumes when visible");
+  });
+});
+
+describe("test review", () => {
+  test("a refresh that fails after the first draw keeps the chart and keeps polling", async () => {
+    const page = await app.open("/live");
+    await waitState(page, "chart", "ready");
+    // Route the next requests to a 500 answer.
+    await page.route("**/data/live.json", (route) => route.fulfill({ status: 500, body: "no" }));
+    await until(page, () => window.__events.some(([t]) => t === "d3:error"), undefined, 5000);
+    assert.equal(await page.locator("#chart").getAttribute("data-d3-state"), "ready");
+    assert.equal(await page.locator("#chart .d3-line").count(), 1);
+    await page.unroute("**/data/live.json");
+    const renders = await events(page, "chart", "d3:render");
+    await until(page, (n) => window.__events.filter(([t]) => t === "d3:render").length > n, renders, 6000);
+  });
+
+  test("dark color scheme uses the dark palette steps", async () => {
+    const page = await app.open("/line", { colorScheme: "dark" });
+    await waitState(page, "chart", "ready");
+    const stroke = await page.evaluate(() => getComputedStyle(document.querySelector("#chart .d3-line")).stroke);
+    assert.equal(stroke, "rgb(57, 135, 229)", "dark slot 1 is #3987e5");
+    const light = await app.open("/line", { colorScheme: "light" });
+    await waitState(light, "chart", "ready");
+    assert.equal(await light.evaluate(() => getComputedStyle(document.querySelector("#chart .d3-line")).stroke), "rgb(42, 120, 214)");
+  });
+
+  test("repeated labels draw as separate bars", async () => {
+    const page = await app.open("/bar");
+    await waitState(page, "chart", "ready");
+    await page.evaluate(() => document.getElementById("chart").autumnD3.update([["a", 1], ["a", 2]]));
+    assert.equal(await page.locator("#chart .d3-bar").count(), 2);
+    assert.deepEqual(await texts(page, "chart", ".d3-axis-x .tick text"), ["a", "a"]);
+    await assertClean(page);
   });
 });

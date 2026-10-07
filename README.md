@@ -31,7 +31,7 @@ async fn index() -> Markup {
                 (Chart::bar([("Apples", 30.0), ("Pears", 60.0), ("Plums", 15.0)])
                     .label("Fruit sold")
                     .y_label("Units")
-                    .format(&Format::integer()))
+                    .format(Format::integer()))
             }
         }
     }
@@ -54,44 +54,52 @@ async fn main() {
 | `Chart::bar(data)` | `(label, value)` or `Datum` | `horizontal()` |
 | `Chart::pie(data)` | `(label, value)` or `Datum` | `donut(inner)` |
 | `Chart::line(series)` | `Series` of `(x, y)` | `curve`, `dots`, `x_scale`, `y_scale`, `x_format` |
-| `Chart::area(series)` | `Series` of `(x, y)` | `curve`, `x_scale`, `y_scale`, `x_format` |
+| `Chart::area(series)` | `Series` of `(x, y)` | `curve`, `dots`, `x_scale`, `y_scale`, `x_format` |
 | `Chart::scatter(series)` | `Series` of `(x, y)` | `radius`, `x_scale`, `y_scale`, `x_format` |
-| `Chart::custom(name)?` | `json(&value)?` | all axis options |
+| `Chart::custom(name)?` | `json(&value)?` | `curve`, `dots`, `x_scale`, `y_scale`, `x_format` |
 
 Kind options compile only on their kinds. For example, `Chart::bar(..).donut(0.5)`
-does not compile. Axis options (`x_label`, `y_label`, `y_min`, `y_max`)
-apply to all kinds except pie.
+does not compile. `y_min` and `y_max` apply to all kinds except pie.
+`legend` applies to line, area, scatter, and pie.
 
 A non-finite value (`NaN`, `±∞`) is a missing value. Bars skip it. Lines
-show a gap. With `Scale::Time`, x is Unix time in milliseconds.
+show a gap. With `Scale::Time`, x is Unix time in milliseconds. Repeated
+labels or series names draw as separate marks.
 
 ## Common options
 
 | Method | Attribute | Effect |
 |---|---|---|
 | `label(text)` | `data-d3-label` | Accessible name. Also the table caption. |
-| `caption(text)` | — | Visible `<figcaption>`. |
-| `format(&Format)` | `data-d3-format` | Value format (ticks, tooltips). |
+| `caption(text)` | — | Visible `<figcaption>`. Also the name when there is no `label`. |
+| `x_label(text)`, `y_label(text)` | `data-d3-x-label`, `data-d3-y-label` | Axis titles and table headers. |
+| `format(Format)` | `data-d3-format` | Value format (ticks, tooltips). |
 | `colors([Color])` | `data-d3-colors` | Series colors, in order. |
 | `aspect(ratio)` | `data-d3-aspect` | Plot width / height. Default 16 / 9. |
 | `duration(Duration)` | `data-d3-duration` | Transition time. Default 400 ms. |
 | `animate_reduced_motion()` | `data-d3-reduced="animate"` | Animate also for reduced-motion users. |
-| `legend(bool)` | `data-d3-legend` | Default: on for two or more series. |
+| `legend(bool)` | `data-d3-legend` | Default: on for two or more series or slices. |
 | `src(url)` / `Chart::<K>::from_src(url)` | `data-d3-src` | Load JSON from a same-origin URL. |
 | `refresh(Duration)` | `data-d3-refresh` | Load `src` again at this interval. |
 | `table(false)` | — | Leave out the data table. |
 | `id`, `class` | — | Element id and extra classes. |
 
 `Format` maps to d3-format: `integer()`, `decimal(n)`, `percent(n)`,
-`si(n)`, `currency(n)`, or `d3("spec")`.
+`si(n)`, `currency(n)`, or `d3("spec")`. The runtime ignores a bad
+specifier or a width above 64.
 
 ## Hand-written markup
 
 The builder only writes attributes. This markup works too:
 
 ```html
-<figure data-d3="bar" data-d3-data='[["a", 1], ["b", 2]]' data-d3-label="Hand"></figure>
+<figure data-d3="bar" data-d3-data='[["a", 1], ["b", 2]]' data-d3-label="Hand">
+  <div class="d3-table"></div>
+</figure>
 ```
+
+An empty `div.d3-table` is optional. The runtime fills it with the data
+table, and updates it when the data changes.
 
 Data shapes: `[{"label": "a", "value": 1}]` or `[["a", 1]]` for bar and
 pie; `[{"name": "s", "points": [[x, y]]}]` for line, area, and scatter. An
@@ -135,31 +143,43 @@ AutumnD3.register("sparkline", ({ d3, svg, width, height, data, color }) => {
 ```
 
 The runtime clears the SVG before each draw of a custom kind. Use the
-`style()` method for styles (CSSOM). Do not set `style` attributes.
+`style()` method for styles (CSSOM). Do not set `style` attributes. Data
+can come from untrusted markup: write text with `.text()`, never `.html()`.
 
 | API | Use |
 |---|---|
 | `d3:ready` event | First draw. `event.detail` is the handle. |
 | `d3:render` event | Each draw. |
 | `d3:error` event | `event.detail.error`. The table stays. |
-| `el.autumnD3` | Handle: `d3`, `svg`, `data`, `options`, `update(data)`, `render()`, `destroy()`. |
+| `el.autumnD3` | Handle: `el`, `kind`, `d3`, `svg`, `data`, `options`, `duration`, `destroyed`, `update(data)`, `render()`, `destroy()`. |
 | `AutumnD3` | `register(kind, draw)`, `scan(root)`, `get(el)`, `version`. |
 | `data-d3-state` | `loading`, `pending` (custom kind not registered), `ready`, `error`. |
 
 ## Theme
 
-Set these custom properties on `[data-d3]` or a parent class. The
-defaults use `:where()`, so your rules win.
+Set these custom properties on the chart element, for example
+`.sales { --d3-color-1: #0a7; }`. The defaults use `:where()`, so your
+rules win.
 
 | Property | Default |
 |---|---|
 | `--d3-color-1` … `--d3-color-8` | Validated palette (light and dark steps). |
-| `--d3-surface` | `Canvas`. Ring and tooltip background. |
+| `--d3-surface` | `Canvas` (`#1a1a19` with `data-theme="dark"`). Ring and tooltip background. |
 | `--d3-muted`, `--d3-grid` | Mixes of `currentColor`. |
 | `--d3-bar-max` | `24` (largest bar thickness in px). |
 | `--d3-area-opacity` | `0.1`. |
 
 Add class `d3-show-table` to keep the data table visible.
+
+## Accessibility
+
+- Each chart has a data table. It shows without JavaScript and on error.
+  When the chart is ready, it stays for screen readers only.
+- The SVG has `role="img"` and a name. When it has values, it is a tab
+  stop: arrow keys, Home, and End move a tooltip, and a live region reads
+  the value. Escape closes the tooltip.
+- A legend shows for two or more series. The palette has 8 colors.
+- Reduced motion turns transitions off. Forced colors keep series colors.
 
 ## Gotchas
 
@@ -169,6 +189,10 @@ Add class `d3-show-table` to keep the data table visible.
 - **htmx in nonce mode.** htmx adds an inline `<style>`. Set
   `<meta name="htmx-config" content='{"includeIndicatorStyles":false}'>`.
 - **Big data.** Large inline data makes large HTML. Use `src`.
+- **User content.** Remove `data-d3*` attributes and `id="AutumnD3"` from
+  user HTML. Else user markup can start charts and load same-origin URLs.
+- **Refresh.** After a failure, the wait doubles (up to 5 min). While the
+  tab is hidden, refresh stops.
 
 ## Demo
 

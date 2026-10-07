@@ -43,9 +43,9 @@ describe("parseKind", () => {
 describe("parseCategories", () => {
   test("objects and pairs", () => {
     assert.deepEqual(P.parseCategories([{ label: "a", value: 1 }, ["b", 2.5], { label: 3, value: null }]), [
-      { label: "a", value: 1 },
-      { label: "b", value: 2.5 },
-      { label: "3", value: null },
+      { label: "a", value: 1, key: "a" },
+      { label: "b", value: 2.5, key: "b" },
+      { label: "3", value: null, key: "3" },
     ]);
   });
 
@@ -58,7 +58,11 @@ describe("parseCategories", () => {
     assert.throws(() => P.parseCategories({}), /array/);
     assert.throws(() => P.parseCategories([42]), /item 1/);
     assert.throws(() => P.parseCategories([{ value: 1 }]), /item 1 has no label/);
-    assert.throws(() => P.parseCategories([["a", 1], ["a", 2]]), /duplicate label "a"/);
+    assert.deepEqual(
+      P.parseCategories([["a", 1], ["a", 2], ["a", 3]]).map((d) => d.key),
+      ["a", "a\u00002", "a\u00003"],
+      "repeated labels get unique keys",
+    );
   });
 });
 
@@ -69,8 +73,8 @@ describe("parseSeries", () => {
       { points: [] },
     ]);
     assert.deepEqual(out, [
-      { name: "s", points: [[1, 2], [2, null], [3, null], [Date.UTC(2026, 0, 1), 5]] },
-      { name: "Series 2", points: [] },
+      { name: "s", points: [[1, 2], [2, null], [3, null], [Date.UTC(2026, 0, 1), 5]], key: "s" },
+      { name: "Series 2", points: [], key: "Series 2" },
     ]);
   });
 
@@ -93,14 +97,14 @@ describe("parseSeries", () => {
     assert.throws(() => P.parseSeries([1]), /series 1/);
     assert.throws(() => P.parseSeries([{ name: "a", points: 1 }]), /series 1 points/);
     assert.throws(() => P.parseSeries([{ name: "a", points: [7] }]), /series 1 point 1/);
-    assert.throws(() => P.parseSeries([{ name: "a", points: [] }, { name: "a", points: [] }]), /duplicate series "a"/);
+    assert.deepEqual(P.parseSeries([{ name: "a", points: [] }, { name: "a", points: [] }]).map((s) => s.key), ["a", "a\u00002"]);
   });
 });
 
 describe("parseData", () => {
   test("parses JSON text by shape", () => {
-    assert.deepEqual(P.parseData({ shape: "categories" }, '[["a",1]]'), [{ label: "a", value: 1 }]);
-    assert.deepEqual(P.parseData({ shape: "series" }, '[{"name":"s","points":[]}]'), [{ name: "s", points: [] }]);
+    assert.deepEqual(P.parseData({ shape: "categories" }, '[["a",1]]'), [{ label: "a", value: 1, key: "a" }]);
+    assert.deepEqual(P.parseData({ shape: "series" }, '[{"name":"s","points":[]}]'), [{ name: "s", points: [], key: "s" }]);
     assert.deepEqual(P.parseData({ shape: "any" }, '{"k":1}'), { k: 1 });
     assert.deepEqual(P.parseData({ shape: "any" }, { k: 2 }), { k: 2 }, "objects pass through");
   });

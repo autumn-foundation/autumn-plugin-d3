@@ -59,18 +59,23 @@
   /** Returns `v` when it is a finite number, else null. */
   const finite = (v) => (typeof v === "number" && Number.isFinite(v) ? v : null);
 
-  /** Throws on a repeated key. */
-  function unique(keys, what) {
-    const seen = new Set();
-    for (const key of keys) {
-      if (seen.has(key)) throw new Error(`duplicate ${what} "${key}"`);
-      seen.add(key);
+  /**
+   * Gives each item a unique `key`: its name, plus a counter for repeats
+   * (`a`, `a\u00002`). Repeated labels then draw as separate marks.
+   */
+  function keyed(items, name) {
+    const seen = new Map();
+    for (const item of items) {
+      const n = (seen.get(item[name]) ?? 0) + 1;
+      seen.set(item[name], n);
+      item.key = n === 1 ? item[name] : `${item[name]}\u0000${n}`;
     }
+    return items;
   }
 
   /**
    * Bar and pie data: `[{ label, value }]` or `[[label, value]]`.
-   * Returns `[{ label: string, value: number | null }]`.
+   * Returns `[{ label: string, value: number | null, key: string }]`.
    */
   function parseCategories(input) {
     if (!Array.isArray(input)) throw new Error("data must be an array");
@@ -80,8 +85,7 @@
       if (label === undefined || label === null) throw new Error(`item ${i + 1} has no label`);
       return { label: String(label), value: finite(value) };
     });
-    unique(out.map((d) => d.label), "label");
-    return out;
+    return keyed(out, "label");
   }
 
   /** ISO 8601 date, with optional time and zone. */
@@ -104,6 +108,7 @@
   /**
    * Line, area, and scatter data: `[{ name, points: [[x, y]] | [{ x, y }] }]`.
    * Points with no x are dropped. A null y is a gap. Points sort by x.
+   * Returns `[{ name, points, key }]`.
    */
   function parseSeries(input) {
     if (!Array.isArray(input)) throw new Error("data must be an array");
@@ -121,8 +126,7 @@
       const name = s.name === undefined || s.name === null ? `Series ${i + 1}` : String(s.name);
       return { name, points };
     });
-    unique(out.map((s) => s.name), "series");
-    return out;
+    return keyed(out, "name");
   }
 
   /** Parses data (JSON text or a value) for a kind from `parseKind`. */

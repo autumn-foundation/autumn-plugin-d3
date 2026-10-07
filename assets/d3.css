@@ -15,7 +15,7 @@
   --d3-color-7: #4a3aa7;
   --d3-color-8: #e34948;
   --d3-surface: Canvas;
-  --d3-muted: color-mix(in srgb, currentColor 65%, transparent);
+  --d3-muted: color-mix(in srgb, currentColor 75%, transparent);
   --d3-grid: color-mix(in srgb, currentColor 14%, transparent);
   --d3-bar-max: 24;
   --d3-area-opacity: 0.1;
@@ -35,6 +35,9 @@
 }
 
 :where(:root[data-theme="dark"] [data-d3]) {
+  /* An explicit dark theme may not set color-scheme, so Canvas can stay
+   * white. Use the dark surface directly. */
+  --d3-surface: #1a1a19;
   --d3-color-1: #3987e5;
   --d3-color-2: #d95926;
   --d3-color-3: #199e70;
@@ -68,13 +71,17 @@
   font-size: 12px;
 }
 
+/* D3 axes set font-size="10" and font-family on their group. */
+.d3-axis { font-size: inherit; font-family: inherit; }
+.d3-empty { fill: var(--d3-muted); }
+
 .d3-plot > svg:focus { outline: none; }
 .d3-plot > svg:focus-visible { outline: 2px solid var(--d3-color-1); outline-offset: 2px; }
 
 [data-d3]:not([data-d3-state="ready"]) > .d3-plot,
 [data-d3]:not([data-d3-state="ready"]) > .d3-legend { display: none; }
 
-/* Marks: thin, quiet, the data is the loud part. */
+/* Marks: thin lines, small dots. Axes and grid stay quiet. */
 .d3-bar, .d3-arc { fill: var(--d3-c); }
 .d3-line { fill: none; stroke: var(--d3-c); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
 .d3-area { fill: var(--d3-c); fill-opacity: var(--d3-area-opacity); stroke: none; }
@@ -90,17 +97,18 @@
 .d3-grid path { display: none; }
 .d3-crosshair { stroke: var(--d3-muted); stroke-width: 1; pointer-events: none; }
 
+/* The runtime measures the box and keeps it inside the plot. */
 .d3-tooltip {
   position: absolute;
   z-index: 1;
-  transform: translate(-50%, calc(-100% - 10px));
+  box-sizing: border-box;
+  max-width: min(320px, 100%);
   padding: 4px 8px;
   border: 1px solid var(--d3-grid);
   border-radius: 6px;
   background: var(--d3-surface);
   color: inherit;
   font-size: 12px;
-  white-space: nowrap;
   pointer-events: none;
   box-shadow: 0 2px 8px rgb(0 0 0 / 12%);
 }
@@ -131,6 +139,8 @@
 .d3-table th, .d3-table td { padding: 2px 12px 2px 0; text-align: start; }
 .d3-table td { font-variant-numeric: tabular-nums; }
 
+.d3-live,
+.d3-hint,
 [data-d3][data-d3-state="ready"]:not(.d3-show-table) > .d3-table {
   position: absolute;
   width: 1px;
@@ -140,10 +150,6 @@
   white-space: nowrap;
 }
 
-/* Forced colors: marks use system colors; identity comes from the legend,
- * the tooltip, and the table. */
-@media (forced-colors: active) {
-  .d3-bar, .d3-arc, .d3-dot { fill: CanvasText; }
-  .d3-line { stroke: CanvasText; }
-  .d3-arc { stroke: Canvas; stroke-width: 2; }
-}
+/* Forced colors: series colors carry identity, so marks and swatches
+ * keep them. Axes and text follow the system colors. */
+.d3-swatch, .d3-bar, .d3-arc, .d3-line, .d3-area, .d3-dot { forced-color-adjust: none; }
