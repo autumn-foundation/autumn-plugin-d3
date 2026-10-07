@@ -10,6 +10,10 @@
 (function () {
   "use strict";
 
+  // A second copy of this file (for example from an htmx swap of the head)
+  // must not start a second runtime.
+  if (window.AutumnD3) return;
+
   const d3 = window.d3;
   const P = window.AutumnD3Parse;
   if (!d3 || !P) {
@@ -67,8 +71,14 @@
     return reducedMotion.matches && !state.options.reducedAnimate ? 0 : state.options.duration;
   }
 
-  /** A transition on `sel`, or `sel` itself when `duration` is zero. */
-  const tx = (sel, duration) => (duration > 0 ? sel.transition().duration(duration) : sel);
+  /**
+   * A transition on `sel`. When `duration` is zero, it stops running
+   * transitions and returns `sel`, so a later transition cannot undo it.
+   */
+  const tx = (sel, duration) => (duration > 0 ? sel.transition().duration(duration) : sel.interrupt());
+
+  /** The update part of a join: a mark that was fading out comes back. */
+  const revive = (sel) => sel.interrupt().style("opacity", null);
 
   /** Removes `sel`, after a fade when `duration` is not zero. */
   function exit(sel, duration) {
@@ -202,7 +212,7 @@
       .data(rows, (d) => d.label)
       .join(
         (enter) => enter.append("path").attr("d", (d) => path(d, 0)),
-        (update) => update,
+        revive,
         (old) => exit(old, duration),
       );
     paint(bars, "d3-bar", options, () => 0);
@@ -261,7 +271,7 @@
       const fills = marks
         .selectAll("path.d3-area")
         .data(series, (s) => s.name)
-        .join((enter) => enter.append("path").style("opacity", 0), (u) => u, (old) => exit(old, duration));
+        .join((enter) => enter.append("path").style("opacity", 0), revive, (old) => exit(old, duration));
       paint(fills, "d3-area", options, colorOf);
       tx(fills, duration).style("opacity", 1).attr("d", (s) => area(s.points));
     }
@@ -269,21 +279,25 @@
       const lines = marks
         .selectAll("path.d3-line")
         .data(series, (s) => s.name)
-        .join((enter) => enter.append("path").style("opacity", 0), (u) => u, (old) => exit(old, duration));
+        .join((enter) => enter.append("path").style("opacity", 0), revive, (old) => exit(old, duration));
       paint(lines, "d3-line", options, colorOf);
       tx(lines, duration).style("opacity", 1).attr("d", (s) => line(s.points));
     }
     const showDots = kind === "scatter" || options.dots;
     const dotData = showDots
-      ? series.flatMap((s) => s.points.filter(defined).map((p) => ({ key: `${s.name}\u0000${p[0]}`, s, p })))
+      ? series.flatMap((s) => s.points.flatMap((p, j) => (defined(p) ? [{ key: `${s.name}\u0000${j}`, s, p }] : [])))
       : [];
     const radius = kind === "scatter" ? options.radius : 4;
     const dots = marks
       .selectAll("circle.d3-dot")
       .data(dotData, (d) => d.key)
-      .join((enter) => enter.append("circle").attr("r", 0).attr("cx", (d) => x(d.p[0])).attr("cy", (d) => y(d.p[1])), (u) => u, (old) => exit(old, duration))
+      .join((enter) => enter.append("circle").attr("r", 0).attr("cx", (d) => x(d.p[0])).attr("cy", (d) => y(d.p[1])), revive, (old) => exit(old, duration))
       .raise();
     paint(dots, "d3-dot", options, (d) => colorOf(d.s));
+    const dotNode = new Map();
+    dots.each(function (d) {
+      dotNode.set(d.key, this);
+    });
     tx(dots, duration).attr("r", radius).attr("cx", (d) => x(d.p[0])).attr("cy", (d) => y(d.p[1]));
 
     const fx = (v) => (time ? formatTime(v) : (xFormat || defaultFormat)(v));
@@ -292,7 +306,7 @@
       return dotData
         .slice()
         .sort((a, b) => a.p[0] - b.p[0] || a.p[1] - b.p[1])
-        .map((d) => ({ x: x(d.p[0]), y: y(d.p[1]), text: `${d.s.name} · ${fx(d.p[0])}: ${fy(d.p[1])}`, mark: dots.filter((o) => o.key === d.key).node() }));
+        .map((d) => ({ x: x(d.p[0]), y: y(d.p[1]), text: `${d.s.name} · ${fx(d.p[0])}: ${fy(d.p[1])}`, mark: dotNode.get(d.key) }));
     }
     // Line and area: one item per x value, with every series.
     const byX = d3.group(series.flatMap((s) => s.points.map((p) => ({ s, p }))), (d) => d.p[0]);
@@ -328,7 +342,7 @@
         (enter) => enter.append("path").each(function (a) {
           this._current = { startAngle: a.startAngle, endAngle: a.startAngle, padAngle: a.padAngle };
         }),
-        (u) => u,
+        revive,
         (old) => exit(old, duration),
       );
     paint(slices, "d3-arc", options, (a) => index.get(a.data.label));
@@ -342,7 +356,7 @@
           return (t) => arc(interpolate(t));
         });
     } else {
-      slices.attr("d", arc).each(function (a) {
+      slices.interrupt().attr("d", arc).each(function (a) {
         this._current = a;
       });
     }
@@ -511,6 +525,7 @@
   /** Draws the chart. `animate` uses the transition time. */
   function draw(state, animate) {
     const { el, kind, options } = state;
+    if (state.destroyed) return;
     try {
       ensurePlot(state);
       setState(el, "ready");
@@ -571,6 +586,7 @@
 
   /** Loads `data-d3-src`, then schedules the next refresh. */
   async function load(state) {
+    if (state.destroyed) return;
     const gen = state.gen;
     const url = P.sameOrigin(state.options.src, location.href);
     if (!url) return fail(state, new Error(`data-d3-src must have the same origin as the page: ${state.options.src}`));
@@ -595,6 +611,10 @@
   /** Reads the options and data, then draws or loads. */
   function start(state) {
     const { el, kind } = state;
+    // A new start owns the data: stop the old request and refresh timer.
+    state.gen += 1;
+    state.abort?.abort();
+    clearTimeout(state.timer);
     state.options = P.readOptions((name) => el.getAttribute(name));
     if (!kind) return fail(state, new Error(`unknown chart kind "${el.getAttribute(ATTR.kind)}"`));
     if (!kind.builtIn && !registry.has(kind.name)) return setState(el, "pending");
@@ -640,6 +660,7 @@
       },
       /** Sets new data (JSON text or a value) and draws it. Throws on bad data. */
       update(data) {
+        if (state.destroyed) throw new Error("autumn-plugin-d3: the chart is destroyed");
         state.data = P.parseData(state.kind, data);
         draw(state, true);
       },

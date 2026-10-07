@@ -95,7 +95,8 @@ The builder only writes attributes. This markup works too:
 
 Data shapes: `[{"label": "a", "value": 1}]` or `[["a", 1]]` for bar and
 pie; `[{"name": "s", "points": [[x, y]]}]` for line, area, and scatter. An
-x value can also be a date string. `null` is a missing value.
+x value can also be a numeric string or an ISO 8601 date string (no zone
+means UTC). `null` is a missing value.
 
 ## htmx and live data
 

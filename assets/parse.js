@@ -84,13 +84,21 @@
     return out;
   }
 
-  /** An x value: a finite number, or a date string. Else null. */
+  /** ISO 8601 date, with optional time and zone. */
+  const ISO_DATE = /^(\d{4}-\d{2}-\d{2})(T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?)?(Z|[+-]\d{2}:\d{2})?$/;
+
+  /**
+   * An x value: a finite number, a numeric string, or an ISO 8601 date
+   * string (Unix ms; no zone means UTC). Else null.
+   */
   function parseX(x) {
-    if (typeof x === "string") {
-      const ms = Date.parse(x);
-      return Number.isFinite(ms) ? ms : null;
-    }
-    return finite(x);
+    if (typeof x !== "string") return finite(x);
+    const text = x.trim();
+    if (text !== "" && Number.isFinite(Number(text))) return Number(text);
+    const match = ISO_DATE.exec(text);
+    if (!match) return null;
+    const ms = Date.parse(match[2] && !match[3] ? `${text}Z` : text);
+    return Number.isFinite(ms) ? ms : null;
   }
 
   /**

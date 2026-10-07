@@ -595,3 +595,115 @@ describe("edge cases", () => {
     assert.ok(page.errors.some((e) => e.includes("load d3.min.js and parse.js before init.js")), page.errors.join("; "));
   });
 });
+
+describe("review regressions", () => {
+  test("a resize during a transition wins over the transition", async () => {
+    const page = await app.open("/bar", { reducedMotion: "no-preference" });
+    await waitState(page, "chart", "ready");
+    await sleep(500);
+    await page.evaluate(() => {
+      const el = document.getElementById("chart");
+      el.setAttribute("data-d3-duration", "1500");
+    });
+    await waitState(page, "chart", "ready");
+    await page.evaluate(() => document.getElementById("chart").autumnD3.update([["Apples", 10], ["Pears", 20], ["Plums", 40]]));
+    await page.evaluate(() => document.getElementById("chart").style.setProperty("width", "300px"));
+    await sleep(1800);
+    const bars = await boxes(page, "chart", ".d3-bar");
+    assert.ok(bars.every((b) => b.x + b.width <= 16 + 300), `bars fit the new width: ${JSON.stringify(bars)}`);
+  });
+
+  test("a mark that comes back during its fade is fully opaque", async () => {
+    const page = await app.open("/bar", { reducedMotion: "no-preference" });
+    await waitState(page, "chart", "ready");
+    await sleep(500);
+    const handle = () => document.getElementById("chart").autumnD3;
+    await page.evaluate(() => document.getElementById("chart").autumnD3.update([["Apples", 30], ["Plums", 15]]));
+    await sleep(150);
+    await page.evaluate(() => document.getElementById("chart").autumnD3.update([["Apples", 30], ["Pears", 60], ["Plums", 15]]));
+    await sleep(700);
+    const opacity = await page.evaluate(() => [...document.querySelectorAll("#chart .d3-bar")].map((b) => getComputedStyle(b).opacity));
+    assert.deepEqual(opacity, ["1", "1", "1"]);
+    void handle;
+  });
+
+  test("scatter points with the same x keep their own dots", async () => {
+    const page = await app.open("/scatter");
+    await waitState(page, "chart", "ready");
+    await page.evaluate(() => document.getElementById("chart").autumnD3.update([{ name: "s", points: [[1, 1], [1, 5], [2, 3]] }]));
+    assert.equal(await page.locator("#chart .d3-dot").count(), 3);
+    await page.focus("#chart svg");
+    await page.keyboard.press("ArrowRight");
+    assert.equal(await page.locator("#chart .d3-tooltip").textContent(), "s · 1.0: 5");
+    const active = await page.evaluate(() => document.querySelector("#chart .d3-dot.d3-active")?.getBoundingClientRect().y);
+    const top = await page.evaluate(() => Math.min(...[...document.querySelectorAll("#chart .d3-dot")].map((d) => d.getBoundingClientRect().y)));
+    assert.ok(near(active, top), "the dot at y = 5 is active");
+  });
+
+  test("a destroyed chart stays destroyed", async () => {
+    const page = await app.open("/bar");
+    await waitState(page, "chart", "ready");
+    const message = await page.evaluate(() => {
+      const h = document.getElementById("chart").autumnD3;
+      h.destroy();
+      h.render();
+      try {
+        h.update([["x", 1]]);
+        return null;
+      } catch (error) {
+        return error.message;
+      }
+    });
+    assert.match(message, /destroyed/);
+    assert.equal(await page.locator("#chart .d3-plot").count(), 0);
+    assert.equal(await page.locator("#chart").getAttribute("data-d3-state"), null);
+  });
+
+  test("registering a kind twice keeps one refresh loop, which stops on removal", async () => {
+    const page = await app.open("/handwritten");
+    await waitState(page, "chart", "ready");
+    let fetches = 0;
+    page.on("request", (r) => r.url().includes("/data/live.json") && (fetches += 1));
+    await page.evaluate(() => {
+      const fig = document.createElement("figure");
+      fig.id = "twice";
+      fig.setAttribute("data-d3", "twice");
+      fig.setAttribute("data-d3-src", "/data/live.json");
+      fig.setAttribute("data-d3-refresh", "1000");
+      document.body.append(fig);
+    });
+    await sleep(100);
+    await page.evaluate(() => {
+      window.AutumnD3.register("twice", () => {});
+      window.AutumnD3.register("twice", () => {});
+    });
+    await sleep(3500);
+    assert.ok(fetches <= 5, `one loop: ${fetches} fetches in 3.5 s`);
+    await page.evaluate(() => document.getElementById("twice").remove());
+    await sleep(200);
+    const after = fetches;
+    await sleep(2500);
+    assert.equal(fetches, after, "no fetches after removal");
+  });
+
+  test("a second copy of init.js does not draw charts twice", async () => {
+    const page = await app.open("/handwritten");
+    await waitState(page, "chart", "ready");
+    await page.evaluate(() => {
+      const script = document.createElement("script");
+      script.src = document.querySelector('script[src*="/_plugins/d3/init."]').src;
+      document.head.append(script);
+    });
+    await sleep(300);
+    await page.evaluate(() => {
+      const fig = document.createElement("figure");
+      fig.id = "added";
+      fig.setAttribute("data-d3", "bar");
+      fig.setAttribute("data-d3-data", '[["x", 3]]');
+      document.body.append(fig);
+    });
+    await waitState(page, "added", "ready");
+    await sleep(100);
+    assert.equal(await page.locator("#added .d3-plot").count(), 1);
+  });
+});

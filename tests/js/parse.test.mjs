@@ -74,6 +74,16 @@ describe("parseSeries", () => {
     ]);
   });
 
+  test("numeric strings are numbers; ISO strings without a zone are UTC", () => {
+    const out = P.parseSeries([{ name: "s", points: [["3", 1], ["12.5", 2], ["2026-01-02T06:00", 3], ["2026-01-02T06:00+02:00", 4], ["March 3", 5]] }]);
+    assert.deepEqual(out[0].points, [
+      [3, 1],
+      [12.5, 2],
+      [Date.UTC(2026, 0, 2, 4), 4],
+      [Date.UTC(2026, 0, 2, 6), 3],
+    ]);
+  });
+
   test("points are sorted by x", () => {
     assert.deepEqual(P.parseSeries([{ name: "s", points: [[3, 1], [1, 2]] }])[0].points, [[1, 2], [3, 1]]);
   });
