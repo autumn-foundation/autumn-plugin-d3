@@ -1,0 +1,85 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  rust:
+    name: Rust (fmt, clippy, test, coverage)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      # Pinned: a new stable release can add pedantic/nursery lints.
+      - uses: dtolnay/rust-toolchain@1.97.0
+        with:
+          components: rustfmt, clippy, llvm-tools-preview
+      - uses: Swatinem/rust-cache@v2
+      - name: Format
+        run: cargo fmt --all -- --check
+      - name: Clippy (pedantic + nursery)
+        run: cargo clippy --all-targets -- -D warnings
+      - name: Test
+        run: cargo test --all-targets && cargo test --doc
+      - name: Docs
+        run: cargo doc --no-deps
+        env:
+          RUSTDOCFLAGS: -D warnings
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-llvm-cov
+      - name: Coverage (lines >= 85 %)
+        run: cargo llvm-cov --lib --fail-under-lines 85 --summary-only
+
+  msrv:
+    name: MSRV (1.88)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.88.0
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo check --lib
+
+  js:
+    name: JS unit tests (parse.js)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Unit tests with coverage
+        run: node --test --experimental-test-coverage --test-coverage-include=assets/parse.js --test-coverage-lines=85 tests/js/*.test.mjs
+
+  e2e:
+    name: Browser E2E (Chromium)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Build fixture and demo apps
+        run: cargo build --example e2e_fixture --example d3_demo
+      - name: Install Playwright Chromium
+        run: npm ci && npx playwright install --with-deps chromium
+      - name: E2E (init.js strict line coverage >= 95 %)
+        run: npm run test:e2e
