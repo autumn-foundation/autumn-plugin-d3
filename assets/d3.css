@@ -1,0 +1,155 @@
+/* autumn-plugin-d3 default styles.
+ *
+ * Theme a chart with the custom properties on [data-d3]. Their defaults
+ * use :where(), so any of your rules wins. The palette is
+ * the validated 8-slot categorical palette (light and dark steps). Text
+ * uses the page text color. No rule needs an inline style. */
+
+:where([data-d3]) {
+  --d3-color-1: #2a78d6;
+  --d3-color-2: #eb6834;
+  --d3-color-3: #1baf7a;
+  --d3-color-4: #eda100;
+  --d3-color-5: #e87ba4;
+  --d3-color-6: #008300;
+  --d3-color-7: #4a3aa7;
+  --d3-color-8: #e34948;
+  --d3-surface: Canvas;
+  --d3-muted: color-mix(in srgb, currentColor 75%, transparent);
+  --d3-grid: color-mix(in srgb, currentColor 14%, transparent);
+  --d3-bar-max: 24;
+  --d3-area-opacity: 0.1;
+}
+
+@media (prefers-color-scheme: dark) {
+  :where(:root:not([data-theme="light"]) [data-d3]) {
+    --d3-color-1: #3987e5;
+    --d3-color-2: #d95926;
+    --d3-color-3: #199e70;
+    --d3-color-4: #c98500;
+    --d3-color-5: #d55181;
+    --d3-color-6: #008300;
+    --d3-color-7: #9085e9;
+    --d3-color-8: #e66767;
+  }
+}
+
+:where(:root[data-theme="dark"] [data-d3]) {
+  /* An explicit dark theme may not set color-scheme, so Canvas can stay
+   * white. Use the dark surface directly. */
+  --d3-surface: #1a1a19;
+  --d3-color-1: #3987e5;
+  --d3-color-2: #d95926;
+  --d3-color-3: #199e70;
+  --d3-color-4: #c98500;
+  --d3-color-5: #d55181;
+  --d3-color-6: #008300;
+  --d3-color-7: #9085e9;
+  --d3-color-8: #e66767;
+}
+
+/* Series slots. An inline --d3-c (from data-d3-colors) wins. */
+.d3-s0 { --d3-c: var(--d3-color-1); }
+.d3-s1 { --d3-c: var(--d3-color-2); }
+.d3-s2 { --d3-c: var(--d3-color-3); }
+.d3-s3 { --d3-c: var(--d3-color-4); }
+.d3-s4 { --d3-c: var(--d3-color-5); }
+.d3-s5 { --d3-c: var(--d3-color-6); }
+.d3-s6 { --d3-c: var(--d3-color-7); }
+.d3-s7 { --d3-c: var(--d3-color-8); }
+
+/* Plot box. The runtime sets aspect-ratio for data-d3-aspect. */
+.d3-plot {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+}
+
+.d3-plot > svg {
+  display: block;
+  overflow: visible;
+  font-size: 12px;
+}
+
+/* D3 axes set font-size="10" and font-family on their group. */
+.d3-axis { font-size: inherit; font-family: inherit; }
+.d3-empty { fill: var(--d3-muted); }
+
+.d3-plot > svg:focus { outline: none; }
+.d3-plot > svg:focus-visible { outline: 2px solid var(--d3-color-1); outline-offset: 2px; }
+
+[data-d3]:not([data-d3-state="ready"]) > .d3-plot,
+[data-d3]:not([data-d3-state="ready"]) > .d3-legend { display: none; }
+
+/* Marks: thin lines, small dots. Axes and grid stay quiet. */
+.d3-bar, .d3-arc { fill: var(--d3-c); }
+.d3-line { fill: none; stroke: var(--d3-c); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+.d3-area { fill: var(--d3-c); fill-opacity: var(--d3-area-opacity); stroke: none; }
+.d3-dot { fill: var(--d3-c); stroke: var(--d3-surface); stroke-width: 2; }
+.d3-marks:has(.d3-active) > .d3-bar:not(.d3-active),
+.d3-marks:has(.d3-active) > .d3-arc:not(.d3-active) { opacity: 0.55; }
+.d3-dot.d3-active { stroke: currentColor; }
+
+/* Axes and grid: hairlines, recessive. */
+.d3-axis text, .d3-axis-title { fill: var(--d3-muted); }
+.d3-axis path, .d3-axis line { stroke: var(--d3-grid); }
+.d3-grid line { stroke: var(--d3-grid); shape-rendering: crispEdges; }
+.d3-grid path { display: none; }
+.d3-crosshair { stroke: var(--d3-muted); stroke-width: 1; pointer-events: none; }
+
+/* The runtime measures the box and keeps it inside the plot. */
+.d3-tooltip {
+  position: absolute;
+  z-index: 1;
+  box-sizing: border-box;
+  max-width: min(320px, 100%);
+  padding: 4px 8px;
+  border: 1px solid var(--d3-grid);
+  border-radius: 6px;
+  background: var(--d3-surface);
+  color: inherit;
+  font-size: 12px;
+  pointer-events: none;
+  box-shadow: 0 2px 8px rgb(0 0 0 / 12%);
+}
+
+.d3-tooltip[hidden] { display: none; }
+
+.d3-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+  font-size: 12px;
+}
+
+.d3-legend li { display: inline-flex; align-items: center; gap: 6px; }
+.d3-swatch { width: 10px; height: 10px; border-radius: 2px; background: var(--d3-c); }
+
+.d3-caption { margin: 0 0 8px; font-weight: 600; }
+
+/* The data table. Visible without JavaScript and on error. When the chart
+ * is ready it is visually hidden but stays for screen readers. The
+ * wrapper is a div: a table ignores a 1px width. Add class
+ * d3-show-table to keep it visible. */
+.d3-table table { border-collapse: collapse; font-size: 13px; }
+.d3-table caption { text-align: start; font-weight: 600; }
+.d3-table th, .d3-table td { padding: 2px 12px 2px 0; text-align: start; }
+.d3-table td { font-variant-numeric: tabular-nums; }
+
+.d3-live,
+.d3-hint,
+[data-d3][data-d3-state="ready"]:not(.d3-show-table) > .d3-table {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* Forced colors: series colors carry identity, so marks and swatches
+ * keep them. Axes and text follow the system colors. */
+.d3-swatch, .d3-bar, .d3-arc, .d3-line, .d3-area, .d3-dot { forced-color-adjust: none; }

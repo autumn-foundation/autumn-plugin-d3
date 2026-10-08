@@ -1,0 +1,20 @@
+{
+  "files": {
+    "d3.min.js": {
+      "bytes": 279706,
+      "format": "UMD (sets window.d3)",
+      "integrity": "sha384-CjloA8y00+1SDAUkjs099PVfnY2KmDC2BZnws9kh8D/lX1s46w6EPhpXdqMfjK6i",
+      "source": "https://cdn.jsdelivr.net/npm/d3@7.9.0/dist/d3.min.js",
+      "upstream_path": "/dist/d3.min.js"
+    },
+    "D3-LICENSE": {
+      "source": "https://cdn.jsdelivr.net/npm/d3@7.9.0/LICENSE"
+    }
+  },
+  "homepage": "https://d3js.org",
+  "library": "d3",
+  "license": "ISC",
+  "notes": "d3.min.js holds the upstream bytes, unchanged. The integrity pins them. parse.js, init.js, and d3.css are plugin files; autumn-web computes their SRI at runtime. This file and D3-LICENSE are not served.",
+  "pinned": "latest 7.x as of 2026-10-07",
+  "version": "7.9.0"
+}

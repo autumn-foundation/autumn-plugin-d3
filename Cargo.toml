@@ -1,0 +1,50 @@
+[package]
+name = "autumn-plugin-d3"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.88"
+description = "Autumn plugin: D3.js charts with Maud + htmx ergonomics."
+license = "Apache-2.0 AND ISC"
+repository = "https://github.com/autumn-foundation/autumn-plugin-d3"
+keywords = ["autumn", "d3", "charts", "htmx", "plugin"]
+categories = ["web-programming", "visualization"]
+exclude = [".github/", "docs/", "tests/", "static/", "examples/", "proptest-regressions/", "CLAUDE.md", "clippy.toml", "package.json", "package-lock.json"]
+
+[features]
+default = []
+
+[dependencies]
+# No default features: the host app selects the Autumn features.
+# `maud` is on because the plugin ships Maud helpers.
+autumn-web = { version = "0.8", default-features = false, features = ["maud"] }
+# The `html!` macro expands to `maud::` paths.
+maud = "0.27"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+
+[dev-dependencies]
+# `htmx` and `embed-assets` are for the examples and tests only.
+autumn-web = { version = "0.8", default-features = false, features = ["maud", "embed-assets", "htmx"] }
+base64 = "0.22"
+proptest = "1"
+sha2 = "0.10"
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "time"] }
+
+[package.metadata.docs.rs]
+all-features = true
+
+[lints.rust]
+unsafe_code = "forbid"
+missing_docs = "warn"
+
+[lints.clippy]
+pedantic = { level = "warn", priority = -1 }
+nursery = { level = "warn", priority = -1 }
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"
+todo = "deny"
+unimplemented = "deny"
+module_name_repetitions = "allow"
+redundant_pub_crate = "allow"
