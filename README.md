@@ -15,7 +15,7 @@ with htmx, with the default CSP, and without JavaScript.
 
 ```toml
 [dependencies]
-autumn-plugin-d3 = "0.1"
+autumn-plugin-d3 = "0.2"
 ```
 
 ```rust
