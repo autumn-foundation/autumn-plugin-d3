@@ -30,12 +30,14 @@ const DAY_MS: f64 = 86_400_000.0;
 
 #[autumn_web::main]
 async fn main() {
-    autumn_web::app()
-        .plugin(D3Plugin::new())
-        .embedded_static(&STATIC)
-        .routes(autumn_web::routes![index, sales, live])
-        .run()
-        .await;
+    Box::pin(
+        autumn_web::app()
+            .plugin(D3Plugin::new())
+            .embedded_static(&STATIC)
+            .routes(autumn_web::routes![index, sales, live])
+            .run(),
+    )
+    .await;
 }
 
 /// A smooth, repeatable wave for demo data.

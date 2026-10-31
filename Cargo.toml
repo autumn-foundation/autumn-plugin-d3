@@ -16,7 +16,7 @@ default = []
 [dependencies]
 # No default features: the host app selects the Autumn features.
 # `maud` is on because the plugin ships Maud helpers.
-autumn-web = { version = "0.8", default-features = false, features = ["maud"] }
+autumn-web = { version = "0.9", default-features = false, features = ["maud"] }
 # The `html!` macro expands to `maud::` paths.
 maud = "0.27"
 serde = { version = "1", features = ["derive"] }
@@ -25,7 +25,7 @@ thiserror = "2"
 
 [dev-dependencies]
 # `htmx` and `embed-assets` are for the examples and tests only.
-autumn-web = { version = "0.8", default-features = false, features = ["maud", "embed-assets", "htmx"] }
+autumn-web = { version = "0.9", default-features = false, features = ["maud", "embed-assets", "htmx"] }
 base64 = "0.22"
 proptest = "1"
 sha2 = "0.10"
