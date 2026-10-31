@@ -27,38 +27,40 @@ static LIVE: AtomicU32 = AtomicU32::new(0);
 
 #[autumn_web::main]
 async fn main() {
-    autumn_web::app()
-        .plugin(D3Plugin::new())
-        .embedded_static(&STATIC)
-        .routes(autumn_web::routes![
-            bar,
-            horizontal,
-            line,
-            area,
-            scatter,
-            pie,
-            handwritten,
-            bad,
-            remote,
-            remote_bad,
-            live,
-            live_json,
-            sales_json,
-            swap,
-            swap_next,
-            custom,
-            options,
-            empty,
-            edge,
-            slow,
-            slow_json,
-            no_d3,
-            clobber,
-            redirect_json,
-            remote_redirect,
-        ])
-        .run()
-        .await;
+    Box::pin(
+        autumn_web::app()
+            .plugin(D3Plugin::new())
+            .embedded_static(&STATIC)
+            .routes(autumn_web::routes![
+                bar,
+                horizontal,
+                line,
+                area,
+                scatter,
+                pie,
+                handwritten,
+                bad,
+                remote,
+                remote_bad,
+                live,
+                live_json,
+                sales_json,
+                swap,
+                swap_next,
+                custom,
+                options,
+                empty,
+                edge,
+                slow,
+                slow_json,
+                no_d3,
+                clobber,
+                redirect_json,
+                remote_redirect,
+            ])
+            .run(),
+    )
+    .await;
 }
 
 /// The page shell. `extra` adds deferred page scripts after `d3_script()`.

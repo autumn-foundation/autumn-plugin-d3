@@ -1,6 +1,6 @@
 # CLAUDE.md: autumn-plugin-d3
 
-D3.js plugin for Autumn (`autumn-web` 0.8). Style: ASD-STE100 for docs
+D3.js plugin for Autumn (`autumn-web` 0.9). Style: ASD-STE100 for docs
 and comments (short sentences, active voice, simple present).
 
 ## Layout
