@@ -1,8 +1,8 @@
 [package]
 name = "autumn-plugin-d3"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2024"
-rust-version = "1.88"
+rust-version = "1.97"
 description = "Autumn plugin: D3.js charts with Maud + htmx ergonomics."
 license = "Apache-2.0 AND ISC"
 repository = "https://github.com/autumn-foundation/autumn-plugin-d3"
@@ -16,7 +16,7 @@ default = []
 [dependencies]
 # No default features: the host app selects the Autumn features.
 # `maud` is on because the plugin ships Maud helpers.
-autumn-web = { version = "0.9", default-features = false, features = ["maud"] }
+autumn-web = { version = "0.10", default-features = false, features = ["maud"] }
 # The `html!` macro expands to `maud::` paths.
 maud = "0.27"
 serde = { version = "1", features = ["derive"] }
@@ -25,7 +25,7 @@ thiserror = "2"
 
 [dev-dependencies]
 # `htmx` and `embed-assets` are for the examples and tests only.
-autumn-web = { version = "0.9", default-features = false, features = ["maud", "embed-assets", "htmx"] }
+autumn-web = { version = "0.10", default-features = false, features = ["maud", "embed-assets", "htmx"] }
 base64 = "0.22"
 proptest = "1"
 sha2 = "0.10"

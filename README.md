@@ -1,7 +1,7 @@
 # autumn-plugin-d3
 
 [D3.js](https://d3js.org) charts for [Autumn](https://github.com/autumn-foundation/autumn)
-apps (`autumn-web` 0.9). Write charts in Rust. Get SVG charts that work
+apps (`autumn-web` 0.10). Write charts in Rust. Get SVG charts that work
 with htmx, with the default CSP, and without JavaScript.
 
 - No npm, no bundler, no inline script. The crate serves D3 7.9.0 with SRI.
@@ -15,7 +15,7 @@ with htmx, with the default CSP, and without JavaScript.
 
 ```toml
 [dependencies]
-autumn-plugin-d3 = "0.2"
+autumn-plugin-d3 = "0.3"
 ```
 
 ```rust

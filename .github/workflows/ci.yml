@@ -44,12 +44,12 @@ jobs:
         run: cargo llvm-cov --lib --fail-under-lines 85 --summary-only
 
   msrv:
-    name: MSRV (1.88)
+    name: MSRV (1.97)
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@1.88.0
+      - uses: dtolnay/rust-toolchain@1.97.0
       - uses: Swatinem/rust-cache@v2
       - run: cargo check --lib
 

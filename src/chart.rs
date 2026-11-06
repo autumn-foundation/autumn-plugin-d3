@@ -729,7 +729,7 @@ mod tests {
         let chart = Chart::scatter([]).radius(99.0);
         assert_eq!(chart.attribute("data-d3-radius"), Some("50"));
         let chart = Chart::bar([("a", 1.0)])
-            .duration(Duration::from_secs(60))
+            .duration(Duration::from_mins(1))
             .src("/d")
             .refresh(Duration::from_millis(10));
         assert_eq!(chart.attribute("data-d3-duration"), Some("10000"));
