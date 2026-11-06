@@ -18,7 +18,7 @@ with htmx, with the default CSP, and without JavaScript.
 autumn-plugin-d3 = "0.3"
 ```
 
-```rust
+```rust,no_run
 use autumn_plugin_d3::{Chart, D3Plugin, Format, d3_script, d3_stylesheet};
 use autumn_web::prelude::*;
 
@@ -113,12 +113,20 @@ page. A change to `data-d3-data` animates the chart to the new data. A
 change to another `data-d3-*` attribute rebuilds the chart.
 
 ```rust
+use std::time::Duration;
+use autumn_plugin_d3::{Bar, Chart, Datum};
+use autumn_web::prelude::*;
+
 // The handler returns Vec<Datum> or Vec<Series> as JSON.
 #[get("/api/sales.json")]
-async fn sales() -> Json<Vec<Datum>> { Json(load_sales()) }
+async fn sales() -> Json<Vec<Datum>> {
+    Json(vec![Datum::new("Mon", 12.0), Datum::new("Tue", 18.0)])
+}
 
 // The chart loads it, then loads it again every 5 s.
-(Chart::<Bar>::from_src("/api/sales.json").refresh(Duration::from_secs(5)))
+fn sales_chart() -> Markup {
+    html! { (Chart::<Bar>::from_src("/api/sales.json").refresh(Duration::from_secs(5))) }
+}
 ```
 
 ## Custom kinds and JavaScript
@@ -126,10 +134,17 @@ async fn sales() -> Json<Vec<Datum>> { Json(load_sales()) }
 Load your script after `d3_script()`, with `defer`. Do not inline it.
 
 ```rust
-(d3_script())
-script src=(asset_url("js/charts.js")) defer {}
-// ...
-(Chart::custom("sparkline")?.json(&values)?.label("Trend"))
+use autumn_plugin_d3::{Chart, Error, d3_script};
+use autumn_web::prelude::*;
+
+fn trend(values: &[f64]) -> Result<Markup, Error> {
+    let chart = Chart::custom("sparkline")?.json(values)?.label("Trend");
+    Ok(html! {
+        (d3_script())
+        script src=(asset_url("js/charts.js")) defer {}
+        (chart)
+    })
+}
 ```
 
 ```js

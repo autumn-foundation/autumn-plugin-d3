@@ -76,3 +76,8 @@ pub use data::{Color, Curve, Datum, Format, Point, Scale, Series};
 pub use error::Error;
 pub use plugin::{D3Plugin, PLUGIN_NAME};
 pub use script::{d3_script, d3_stylesheet};
+
+/// Compiles the Rust snippets of the README as doctests.
+#[cfg(doctest)]
+#[doc = include_str!("../README.md")]
+pub struct ReadmeDoctests;
